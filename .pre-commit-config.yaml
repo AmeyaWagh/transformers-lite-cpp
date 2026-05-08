@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format
+        entry: clang-format
+        language: system
+        files: \.(cpp|hpp|cc|cxx|hxx|h)$
+        args: [--style=file, -i]
+
+      - id: clang-tidy
+        name: clang-tidy
+        entry: .githooks/run-clang-tidy.sh
+        language: script
+        files: \.(cpp|hpp|cc|cxx|hxx|h)$
+        require_serial: true

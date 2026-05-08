@@ -1,0 +1,15 @@
+add_executable(test_ops_cpu test_ops_cpu.cpp)
+target_link_libraries(test_ops_cpu PRIVATE transformers_lite GTest::gtest_main)
+add_test(NAME test_ops_cpu COMMAND test_ops_cpu)
+
+if(ENABLE_CUDA)
+    add_executable(test_ops_cuda test_ops_cuda.cpp)
+    target_link_libraries(test_ops_cuda PRIVATE transformers_lite GTest::gtest_main)
+    add_test(NAME test_ops_cuda COMMAND test_ops_cuda)
+endif()
+
+if(ENABLE_AVX512)
+    add_executable(test_ops_avx512 test_ops_avx512.cpp)
+    target_link_libraries(test_ops_avx512 PRIVATE transformers_lite GTest::gtest_main)
+    add_test(NAME test_ops_avx512 COMMAND test_ops_avx512)
+endif()
