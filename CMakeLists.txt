@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
 option(BUILD_TESTS "Build unit tests" OFF)
+option(ENABLE_ASAN "Enable AddressSanitizer" ON)
 option(ENABLE_CUDA "Enable CUDA compute backend" OFF)
 option(ENABLE_AVX512 "Enable AVX-512 compute backend" OFF)
 
@@ -43,6 +44,11 @@ endif()
 if(ENABLE_AVX512)
     target_compile_definitions(transformers_lite INTERFACE TRANSFORMERS_AVX512_ENABLED)
     target_compile_options(transformers_lite INTERFACE -mavx512f)
+endif()
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
 endif()
 
 if(BUILD_TESTS)

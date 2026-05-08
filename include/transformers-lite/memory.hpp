@@ -72,7 +72,7 @@ template <template <class> class COMPUTE, class T> class Memory {
      *
      * @param other
      */
-    Memory(const Memory &other) : m_alloc() {
+    Memory(const Memory &other) : m_alloc(), m_data(nullptr), m_size(0), m_allocated_size(0) {
         reserve(other.size());
         COMPUTE<T>::copy(other.data(), m_data, other.size());
     }
@@ -82,7 +82,7 @@ template <template <class> class COMPUTE, class T> class Memory {
      *
      * @param other memory to copy from
      */
-    Memory(Memory &other) : m_alloc() {
+    Memory(Memory &other) : m_alloc(), m_data(nullptr), m_size(0), m_allocated_size(0) {
         reserve(other.size());
         COMPUTE<T>::copy(other.data(), m_data, other.size());
     }
