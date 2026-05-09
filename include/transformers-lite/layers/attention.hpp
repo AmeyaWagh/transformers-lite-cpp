@@ -62,22 +62,7 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
         matmul(v, in, m_wv);
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        // Currently CPU only
-        for (size_t i = 0; i < m_dim; i += 2) {
-            size_t head_dim = i % m_head_size;
-            float32_t freq = 1.0f / powf(10000.0f, head_dim / static_cast<float32_t>(m_head_size));
-            float32_t val = pos_ * freq;
-            float32_t fcr = cosf(val);
-            float32_t fci = sinf(val);
-            size_t rotn = i < m_kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-            for (size_t v = 0; v < rotn; v++) {
-                TensorView<value_type> vec = v == 0 ? m_q : k; // the vector to rotate (query or key)
-                value_type v0 = vec[i];
-                value_type v1 = vec[i + 1];
-                vec[i] = v0 * fcr - v1 * fci;
-                vec[i + 1] = v0 * fci + v1 * fcr;
-            }
-        }
+        rope(m_q, k, pos_, m_head_size);
 
         // multihead attention. iterate over all heads
         size_t kv_mul = m_n_heads / m_kv_heads;

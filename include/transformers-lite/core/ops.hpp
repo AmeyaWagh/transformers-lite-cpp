@@ -258,4 +258,37 @@ template <typename T> void setZero(TensorView<T> &x) {
     memset(x.data(), 0, x.size() * sizeof(T));
 }
 
+/**
+ * @brief Apply RoPE (Rotary Position Embedding) in-place to query and key tensors.
+ *
+ * Rotates pairs of elements within each head using position-dependent frequencies.
+ * Both q and k are rotated for positions i < k.size(); only q is rotated beyond that
+ * (handles grouped-query attention where kv_dim < dim).
+ *
+ * @tparam T datatype
+ * @param q query tensor view (size: dim = n_heads * head_size)
+ * @param k key tensor view for the current position (size: kv_dim = kv_heads * head_size)
+ * @param pos sequence position
+ * @param head_size number of elements per attention head
+ */
+template <typename T> void rope(TensorView<T> &q, TensorView<T> &k, int pos, size_t head_size) {
+    size_t dim = q.size();
+    size_t kv_dim = k.size();
+    for (size_t i = 0; i < dim; i += 2) {
+        size_t head_dim = i % head_size;
+        float freq = 1.0f / powf(10000.0f, head_dim / static_cast<float>(head_size));
+        float theta = pos * freq;
+        float fcr = cosf(theta);
+        float fci = sinf(theta);
+        size_t rotn = i < kv_dim ? 2 : 1;
+        for (size_t r = 0; r < rotn; r++) {
+            TensorView<T> &vec = r == 0 ? q : k;
+            T v0 = vec[i];
+            T v1 = vec[i + 1];
+            vec[i] = v0 * fcr - v1 * fci;
+            vec[i + 1] = v0 * fci + v1 * fcr;
+        }
+    }
+}
+
 } // namespace transformers_lite
