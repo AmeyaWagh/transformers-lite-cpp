@@ -15,7 +15,9 @@ namespace transformers_lite {
  * @tparam T datatype
  * @tparam Alloc memory allocator for the buffer
  */
-template <template <class> class COMPUTE, class T> class Memory {
+template <template <class> class COMPUTE, class T>
+requires ComputeBackend<COMPUTE<T>, T>
+class Memory {
  public:
     using allocator_type = COMPUTE<T>::allocator_type;               // allocator type
     using value_type = T;                                            // datatype
@@ -182,7 +184,10 @@ template <template <class> class COMPUTE, class T> class Memory {
      */
     auto data() -> pointer { return m_data; }
 
-    /** @brief Get a const pointer to the underlying data. */
+    /** @brief Get a const pointer to the underlying data.
+     *
+     * @return const T* const pointer to the data
+     */
     auto data() const -> const_pointer { return m_data; }
 
     /**
