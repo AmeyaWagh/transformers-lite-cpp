@@ -17,3 +17,4 @@ add_test(NAME test_memory COMMAND test_memory)
 
 add_subdirectory(ops)
 add_subdirectory(layers)
+add_subdirectory(transformer)
