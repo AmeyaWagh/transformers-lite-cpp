@@ -7,6 +7,7 @@
 #include "../core/ops.hpp"
 #include "../core/tensor.hpp"
 #include "../core/types.hpp"
+#include "layer.hpp"
 
 namespace transformers_lite {
 
@@ -57,11 +58,13 @@ template <template <class> class COMPUTE, class T> struct TransformerWeights {
  * @tparam COMPUTE compute backend
  * @tparam T datatype
  */
-template <template <class> class COMPUTE, class T> class Attention {
+template <template <class> class COMPUTE, class T> class Attention : public LayerBase<COMPUTE, T, Attention<COMPUTE, T>> {
+    using Base = LayerBase<COMPUTE, T, Attention<COMPUTE, T>>;
+
  public:
-    using ptr = typename std::unique_ptr<Attention<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
+    using typename Base::compute;
+    using typename Base::ptr;
+    using typename Base::value_type;
 
     /**
      * @brief Construct an Attention layer.
@@ -199,11 +202,13 @@ template <template <class> class COMPUTE, class T> class Attention {
  * @tparam COMPUTE compute backend
  * @tparam T datatype
  */
-template <template <class> class COMPUTE, class T> class FeedForward {
+template <template <class> class COMPUTE, class T> class FeedForward : public LayerBase<COMPUTE, T, FeedForward<COMPUTE, T>> {
+    using Base = LayerBase<COMPUTE, T, FeedForward<COMPUTE, T>>;
+
  public:
-    using ptr = std::unique_ptr<FeedForward<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
+    using typename Base::compute;
+    using typename Base::ptr;
+    using typename Base::value_type;
 
     /**
      * @brief Construct a FeedForward layer.
@@ -251,11 +256,13 @@ template <template <class> class COMPUTE, class T> class FeedForward {
  * @tparam COMPUTE compute backend
  * @tparam T datatype
  */
-template <template <class> class COMPUTE, class T> class TransformerBlock {
+template <template <class> class COMPUTE, class T> class TransformerBlock : public LayerBase<COMPUTE, T, TransformerBlock<COMPUTE, T>> {
+    using Base = LayerBase<COMPUTE, T, TransformerBlock<COMPUTE, T>>;
+
  public:
-    using ptr = typename std::unique_ptr<TransformerBlock<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
+    using typename Base::compute;
+    using typename Base::ptr;
+    using typename Base::value_type;
 
     /**
      * @brief Construct a TransformerBlock.
@@ -322,11 +329,13 @@ template <template <class> class COMPUTE, class T> class TransformerBlock {
  * @tparam COMPUTE compute backend
  * @tparam T datatype
  */
-template <template <class> class COMPUTE, class T> class Linear {
+template <template <class> class COMPUTE, class T> class Linear : public LayerBase<COMPUTE, T, Linear<COMPUTE, T>> {
+    using Base = LayerBase<COMPUTE, T, Linear<COMPUTE, T>>;
+
  public:
-    using ptr = typename std::unique_ptr<Linear<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
+    using typename Base::compute;
+    using typename Base::ptr;
+    using typename Base::value_type;
 
     /**
      * @brief Construct a Linear layer.
