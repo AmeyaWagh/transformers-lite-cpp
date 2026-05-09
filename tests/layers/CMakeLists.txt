@@ -1,0 +1,3 @@
+add_executable(test_layers_cpu test_layers_cpu.cpp)
+target_link_libraries(test_layers_cpu PRIVATE transformers_lite GTest::gtest_main)
+add_test(NAME test_layers_cpu COMMAND test_layers_cpu)

@@ -16,3 +16,4 @@ target_link_libraries(test_memory PRIVATE transformers_lite GTest::gtest_main)
 add_test(NAME test_memory COMMAND test_memory)
 
 add_subdirectory(ops)
+add_subdirectory(layers)
