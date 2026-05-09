@@ -25,7 +25,7 @@ cd build && ctest --output-on-failure
 
 ## Design philosophy
 
-This library is intentionally modelled after **Eigen**: it is **header-only**. There must never be `.cpp` files compiled into a separate object or archive. All implementation — including full function bodies and template instantiations — lives in the `.hpp` files under `include/transformers-lite/`. The CMake target is `INTERFACE`-only; users get the library by adding the include path, with no link step against a compiled artifact.
+This library is intentionally modelled after **Eigen**: it is **header-only**. There must never be `.cpp` files compiled into a separate object or archive. All implementation — including full function bodies and template instantiations — lives in the `.hpp` files under `include/transformers-lite/core/` and `include/transformers-lite/layers/`. The CMake target is `INTERFACE`-only; users get the library by adding the include path, with no link step against a compiled artifact.
 
 Consequences of this constraint:
 - Do not introduce `.cpp` source files for library code.
@@ -34,7 +34,7 @@ Consequences of this constraint:
 
 ## Architecture
 
-This is a **header-only C++20 library** (`namespace transformers_lite`) for transformer inference with zero external dependencies. All code lives in `include/transformers-lite/`.
+This is a **header-only C++20 library** (`namespace transformers_lite`) for transformer inference with zero external dependencies. All code lives in `include/transformers-lite/core/` and `include/transformers-lite/layers/`.
 
 ### Layer hierarchy (bottom-up)
 

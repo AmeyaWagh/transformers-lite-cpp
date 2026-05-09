@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include <transformers-lite/tensor.hpp>
+#include <transformers-lite/core/tensor.hpp>
 
 using namespace transformers_lite;
 

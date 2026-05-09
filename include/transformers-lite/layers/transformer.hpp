@@ -3,10 +3,10 @@
 #include <memory>
 #include <string>
 
-#include "memory.hpp"
-#include "ops.hpp"
-#include "tensor.hpp"
-#include "types.hpp"
+#include "../core/memory.hpp"
+#include "../core/ops.hpp"
+#include "../core/tensor.hpp"
+#include "../core/types.hpp"
 
 namespace transformers_lite {
 
