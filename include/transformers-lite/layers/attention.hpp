@@ -1,7 +1,7 @@
 #pragma once
 #include <cmath>
-#include <map>
 #include <string>
+#include <unordered_map>
 
 #include "../core/ops.hpp"
 #include "../core/tensor.hpp"
@@ -25,24 +25,6 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
     using typename Base::value_type;
 
     /**
-     * @brief Construct an Attention layer with pre-bound weight views.
-     *
-     * @param wq query weight matrix view
-     * @param wk key weight matrix view
-     * @param wv value weight matrix view
-     * @param kv_dim key/value cache dimension per position
-     * @param dim transformer model dimension
-     * @param n_heads number of query heads
-     * @param kv_heads number of key/value heads
-     * @param seq_len maximum sequence length
-     */
-    explicit Attention(TensorView<value_type> &wq, TensorView<value_type> &wk, TensorView<value_type> &wv, size_t kv_dim, size_t dim, size_t n_heads,
-                       size_t kv_heads, size_t seq_len)
-        : m_wq(wq), m_wk(wk), m_wv(wv), m_key_cache(Shape(seq_len * kv_dim)), m_value_cache(Shape(seq_len * kv_dim)), m_q(Shape(dim)),
-          m_att(Shape(n_heads, seq_len)), m_kv_dim(kv_dim), m_dim(dim), m_n_heads(n_heads), m_kv_heads(kv_heads), m_head_size(dim / n_heads),
-          m_seq_len(seq_len) {}
-
-    /**
      * @brief Construct an Attention layer from dimensions only; call initializeLayer before forward.
      *
      * @param kv_dim key/value cache dimension per position
@@ -62,7 +44,7 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
      *
      * @param state_dict map of weight name to tensor view
      */
-    void initializeLayer(const std::map<std::string, TensorView<value_type>> &state_dict) {
+    void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
         m_wq = state_dict.at("wq");
         m_wk = state_dict.at("wk");
         m_wv = state_dict.at("wv");

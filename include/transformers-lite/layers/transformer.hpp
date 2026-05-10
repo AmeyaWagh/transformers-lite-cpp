@@ -1,6 +1,6 @@
 #pragma once
-#include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../core/ops.hpp"
@@ -53,26 +53,32 @@ template <template <class> class COMPUTE, class T> struct TransformerWeights {
     Tensor<COMPUTE, T> wcls; // (vocab_size, dim)
 
     /**
-     * @brief Return all weight tensors as a flat map of non-owning views.
+     * @brief Return all weight tensors as a flat state dict with PyTorch-style keys.
      *
-     * Layered tensors (e.g. wq, wk, ...) are returned unsliced; callers
-     * should slice per-layer before passing to initializeLayer.
+     * Per-layer weights are pre-sliced: e.g. "layers.0.attention.wq.weight" is
+     * already a view into layer 0's wq slice. All views point into this object,
+     * which must outlive the returned map.
+     *
+     * @param n_layers number of transformer layers
      */
-    auto stateDict() const -> std::map<std::string, TensorView<T>> {
-        return {
-            {"token_embedding_table", token_embedding_table},
-            {"rms_att_weight", rms_att_weight},
-            {"rms_ffn_weight", rms_ffn_weight},
-            {"wq", wq},
-            {"wk", wk},
-            {"wv", wv},
-            {"wo", wo},
-            {"w1", w1},
-            {"w2", w2},
-            {"w3", w3},
-            {"rms_final_weight", rms_final_weight},
-            {"wcls", wcls},
-        };
+    auto stateDict(size_t n_layers) const -> std::unordered_map<std::string, TensorView<T>> {
+        std::unordered_map<std::string, TensorView<T>> sd;
+        sd["token_embedding_table.weight"] = token_embedding_table;
+        sd["rms_final.weight"] = rms_final_weight;
+        sd["output.weight"] = wcls;
+        for (size_t i = 0; i < n_layers; ++i) {
+            const std::string pfx = "layers." + std::to_string(i) + ".";
+            sd[pfx + "attention.wq.weight"] = wq.slice(i);
+            sd[pfx + "attention.wk.weight"] = wk.slice(i);
+            sd[pfx + "attention.wv.weight"] = wv.slice(i);
+            sd[pfx + "attention.wo.weight"] = wo.slice(i);
+            sd[pfx + "attention_norm.weight"] = rms_att_weight.slice(i);
+            sd[pfx + "ffn_norm.weight"] = rms_ffn_weight.slice(i);
+            sd[pfx + "feedforward.w1.weight"] = w1.slice(i);
+            sd[pfx + "feedforward.w2.weight"] = w2.slice(i);
+            sd[pfx + "feedforward.w3.weight"] = w3.slice(i);
+        }
+        return sd;
     }
 };
 
@@ -122,7 +128,7 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
      *
      * @param state_dict map of weight name to tensor view (already sliced for this layer)
      */
-    void initializeLayer(const std::map<std::string, TensorView<value_type>> &state_dict) {
+    void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
         m_wo = state_dict.at("wo");
         m_w_rms_att = state_dict.at("rms_att");
         m_w_rms_ffn = state_dict.at("rms_ffn");
@@ -185,22 +191,39 @@ template <template <class> class COMPUTE, class T> class Transformer {
     using compute = COMPUTE<T>;
 
     /**
-     * @brief Construct a Transformer from a config and pre-loaded weights.
+     * @brief Construct from a flat PyTorch-style state dict.
      *
-     * The weights object must outlive this Transformer — layers hold non-owning
-     * views into its tensors.
+     * All TensorViews in the dict must outlive this Transformer.
      *
      * @param config transformer hyperparameters
-     * @param weights pre-loaded model weights (not owned)
+     * @param state_dict flat map of weight name → tensor view
      */
-    Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config), m_weights(weights), m_linear(nullptr) {
-        initializeLayers();
+    Transformer(TransformerConfig &config, const std::unordered_map<std::string, TensorView<value_type>> &state_dict) : m_config(config), m_linear(nullptr) {
+        initializeLayers(state_dict);
     }
 
     /**
-     * @brief Build layers by slicing weights from the state dict and calling initializeLayer on each.
+     * @brief Convenience constructor: builds the state dict from a TransformerWeights object.
+     *
+     * @param config transformer hyperparameters
+     * @param weights pre-loaded model weights (not owned; must outlive this Transformer)
      */
-    void initializeLayers() {
+    Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config), m_linear(nullptr) {
+        initializeLayers(weights.stateDict(static_cast<size_t>(config.n_layers)));
+    }
+
+    /**
+     * @brief Build layers from a flat state dict.
+     *
+     * Expected keys follow the PyTorch naming convention:
+     *   "token_embedding_table.weight", "rms_final.weight", "output.weight",
+     *   "layers.{i}.attention.{wq,wk,wv,wo}.weight",
+     *   "layers.{i}.{attention,ffn}_norm.weight",
+     *   "layers.{i}.feedforward.{w1,w2,w3}.weight"
+     *
+     * @param state_dict flat map of weight name → tensor view
+     */
+    void initializeLayers(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
         const size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
         const size_t dim = static_cast<size_t>(m_config.dim);
         const size_t n_heads = static_cast<size_t>(m_config.n_heads);
@@ -208,19 +231,17 @@ template <template <class> class COMPUTE, class T> class Transformer {
         const size_t n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
         const size_t seq_len = static_cast<size_t>(m_config.seq_len);
 
-        auto sd = m_weights.stateDict();
+        m_token_embedding = state_dict.at("token_embedding_table.weight");
+        m_rms_final = state_dict.at("rms_final.weight");
 
-        for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); l++) {
-            std::map<std::string, TensorView<value_type>> layer_sd = {
-                {"wq", sd.at("wq").slice(l)},
-                {"wk", sd.at("wk").slice(l)},
-                {"wv", sd.at("wv").slice(l)},
-                {"wo", sd.at("wo").slice(l)},
-                {"w1", sd.at("w1").slice(l)},
-                {"w2", sd.at("w2").slice(l)},
-                {"w3", sd.at("w3").slice(l)},
-                {"rms_att", sd.at("rms_att_weight").slice(l)},
-                {"rms_ffn", sd.at("rms_ffn_weight").slice(l)},
+        for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); ++l) {
+            const std::string pfx = "layers." + std::to_string(l) + ".";
+            const std::unordered_map<std::string, TensorView<value_type>> layer_sd = {
+                {"wq", state_dict.at(pfx + "attention.wq.weight")},   {"wk", state_dict.at(pfx + "attention.wk.weight")},
+                {"wv", state_dict.at(pfx + "attention.wv.weight")},   {"wo", state_dict.at(pfx + "attention.wo.weight")},
+                {"w1", state_dict.at(pfx + "feedforward.w1.weight")}, {"w2", state_dict.at(pfx + "feedforward.w2.weight")},
+                {"w3", state_dict.at(pfx + "feedforward.w3.weight")}, {"rms_att", state_dict.at(pfx + "attention_norm.weight")},
+                {"rms_ffn", state_dict.at(pfx + "ffn_norm.weight")},
             };
 
             auto attention = std::make_unique<Attention<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len);
@@ -231,12 +252,12 @@ template <template <class> class COMPUTE, class T> class Transformer {
         }
 
         m_linear = std::make_unique<Linear<COMPUTE, value_type>>();
-        m_linear->initializeLayer({{"wcls", sd.at("wcls")}});
+        m_linear->initializeLayer({{"wcls", state_dict.at("output.weight")}});
         m_out_logits.reShape(Shape(m_linear->outDim()));
         m_x_in.reShape(Shape(dim));
     }
 
-    ~Transformer() {}
+    ~Transformer() = default;
 
     /**
      * @brief Run the full transformer forward pass for one token.
@@ -246,18 +267,15 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @param logits output CPU tensor filled with logits over the vocabulary
      */
     void forward(int token, int pos, Tensor<CPU, value_type> &logits) {
-        TensorView<value_type> content_row = m_weights.token_embedding_table.slice(token); // (dim)
-
+        TensorView<value_type> content_row = m_token_embedding.slice(token);
         m_x_in.copyFrom(content_row);
 
         for (auto &layer : m_layers) {
             layer->forward(m_x_in, pos);
         }
 
-        rmsnorm(m_x_in, m_x_in, m_weights.rms_final_weight);
-
+        rmsnorm(m_x_in, m_x_in, m_rms_final);
         m_linear->forward(m_x_in, m_out_logits);
-
         logits.copyFrom(m_out_logits);
     }
 
@@ -266,7 +284,8 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
  private:
     TransformerConfig m_config;
-    const TransformerWeights<COMPUTE, value_type> &m_weights;
+    TensorView<value_type> m_token_embedding; // view into the embedding table
+    TensorView<value_type> m_rms_final;       // view into the final RMSNorm weights
     typename Linear<COMPUTE, value_type>::ptr m_linear;
     Tensor<COMPUTE, value_type> m_x_in;
     Tensor<COMPUTE, value_type> m_out_logits;

@@ -1,6 +1,6 @@
 #pragma once
-#include <map>
 #include <string>
+#include <unordered_map>
 
 #include "../core/ops.hpp"
 #include "../core/tensor.hpp"
@@ -25,18 +25,6 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
     using typename Base::value_type;
 
     /**
-     * @brief Construct a FeedForward layer with pre-bound weight views.
-     *
-     * @param w1_ first weight matrix view (hidden_dim, dim)
-     * @param w2_ second weight matrix view (dim, hidden_dim)
-     * @param w3_ third weight matrix view (hidden_dim, dim)
-     * @param dim transformer model dimension
-     * @param hidden_dim hidden layer dimension
-     */
-    FeedForward(TensorView<value_type> &w1_, TensorView<value_type> &w2_, TensorView<value_type> &w3_, size_t dim, size_t hidden_dim)
-        : m_dim(dim), m_hidden_dim(hidden_dim), m_w1(w1_), m_w2(w2_), m_w3(w3_), m_hb(Shape(hidden_dim)), m_hb2(Shape(hidden_dim)) {}
-
-    /**
      * @brief Construct a FeedForward layer from dimensions only; call initializeLayer before forward.
      *
      * @param dim transformer model dimension
@@ -51,7 +39,7 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
      *
      * @param state_dict map of weight name to tensor view
      */
-    void initializeLayer(const std::map<std::string, TensorView<value_type>> &state_dict) {
+    void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
         m_w1 = state_dict.at("w1");
         m_w2 = state_dict.at("w2");
         m_w3 = state_dict.at("w3");

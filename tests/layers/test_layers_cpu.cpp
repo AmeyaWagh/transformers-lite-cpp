@@ -47,7 +47,8 @@ static Tensor<CPU, float> eye(size_t rows, size_t cols) {
 
 TEST(LinearTest, ZeroWeightsGivesZeroOutput) {
     auto w = zeros(Shape(3, DIM));
-    Linear<CPU, float> layer(w);
+    Linear<CPU, float> layer;
+    layer.initializeLayer({{"wcls", w}});
 
     auto x = filled(Shape(DIM), 2.f);
     auto out = zeros(Shape(3));
@@ -59,7 +60,8 @@ TEST(LinearTest, ZeroWeightsGivesZeroOutput) {
 
 TEST(LinearTest, IdentityWeightsPassthrough) {
     auto w = eye(DIM, DIM);
-    Linear<CPU, float> layer(w);
+    Linear<CPU, float> layer;
+    layer.initializeLayer({{"wcls", w}});
 
     auto x = zeros(Shape(DIM));
     x.data()[0] = 1.f;
@@ -79,7 +81,8 @@ TEST(LinearTest, ScaledIdentityDoublesOutput) {
     auto w = eye(DIM, DIM);
     for (size_t i = 0; i < DIM; ++i)
         w.data()[i * DIM + i] = 2.f;
-    Linear<CPU, float> layer(w);
+    Linear<CPU, float> layer;
+    layer.initializeLayer({{"wcls", w}});
 
     auto x = zeros(Shape(DIM));
     x.data()[0] = 3.f;
@@ -93,7 +96,8 @@ TEST(LinearTest, ScaledIdentityDoublesOutput) {
 
 TEST(LinearTest, OutDimMatchesWeightRows) {
     auto w = zeros(Shape(5, DIM));
-    Linear<CPU, float> layer(w);
+    Linear<CPU, float> layer;
+    layer.initializeLayer({{"wcls", w}});
     EXPECT_EQ(layer.outDim(), 5u);
 }
 
@@ -103,7 +107,8 @@ TEST(FeedForwardTest, ZeroInputGivesZeroOutput) {
     auto w1 = zeros(Shape(HIDDEN_DIM, DIM));
     auto w2 = zeros(Shape(DIM, HIDDEN_DIM));
     auto w3 = zeros(Shape(HIDDEN_DIM, DIM));
-    FeedForward<CPU, float> ff(w1, w2, w3, DIM, HIDDEN_DIM);
+    FeedForward<CPU, float> ff(DIM, HIDDEN_DIM);
+    ff.initializeLayer({{"w1", w1}, {"w2", w2}, {"w3", w3}});
 
     auto in = zeros(Shape(DIM));
     auto out = zeros(Shape(DIM));
@@ -118,7 +123,8 @@ TEST(FeedForwardTest, ZeroGateWeightsGivesZeroOutput) {
     auto w1 = eye(HIDDEN_DIM, DIM);
     auto w2 = eye(DIM, HIDDEN_DIM);
     auto w3 = zeros(Shape(HIDDEN_DIM, DIM));
-    FeedForward<CPU, float> ff(w1, w2, w3, DIM, HIDDEN_DIM);
+    FeedForward<CPU, float> ff(DIM, HIDDEN_DIM);
+    ff.initializeLayer({{"w1", w1}, {"w2", w2}, {"w3", w3}});
 
     auto in = filled(Shape(DIM), 1.f);
     auto out = zeros(Shape(DIM));
@@ -133,7 +139,8 @@ TEST(FeedForwardTest, ZeroW1GivesZeroOutput) {
     auto w1 = zeros(Shape(HIDDEN_DIM, DIM));
     auto w2 = eye(DIM, HIDDEN_DIM);
     auto w3 = filled(Shape(HIDDEN_DIM, DIM), 1.f);
-    FeedForward<CPU, float> ff(w1, w2, w3, DIM, HIDDEN_DIM);
+    FeedForward<CPU, float> ff(DIM, HIDDEN_DIM);
+    ff.initializeLayer({{"w1", w1}, {"w2", w2}, {"w3", w3}});
 
     auto in = filled(Shape(DIM), 2.f);
     auto out = zeros(Shape(DIM));
@@ -154,7 +161,8 @@ TEST(FeedForwardTest, KnownArithmetic) {
     auto w1 = eye(H, D);
     auto w2 = eye(D, H);
     auto w3 = eye(H, D);
-    FeedForward<CPU, float> ff(w1, w2, w3, D, H);
+    FeedForward<CPU, float> ff(D, H);
+    ff.initializeLayer({{"w1", w1}, {"w2", w2}, {"w3", w3}});
 
     auto in = filled(Shape(D), 1.f);
     auto out = zeros(Shape(D));
@@ -173,7 +181,8 @@ TEST(AttentionTest, ZeroWeightsGivesZeroOutput) {
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = zeros(Shape(KV_DIM, DIM));
-    Attention<CPU, float> attn(wq, wk, wv, KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    Attention<CPU, float> attn(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    attn.initializeLayer({{"wq", wq}, {"wk", wk}, {"wv", wv}});
 
     auto in = filled(Shape(DIM), 2.f);
     auto xb = zeros(Shape(DIM));
@@ -187,7 +196,8 @@ TEST(AttentionTest, OutputShapePreserved) {
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = zeros(Shape(KV_DIM, DIM));
-    Attention<CPU, float> attn(wq, wk, wv, KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    Attention<CPU, float> attn(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    attn.initializeLayer({{"wq", wq}, {"wk", wk}, {"wv", wv}});
 
     auto in = filled(Shape(DIM), 1.f);
     auto xb = zeros(Shape(DIM));
@@ -203,7 +213,8 @@ TEST(AttentionTest, IdentityValueWeightPassthroughAtPos0) {
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = eye(KV_DIM, DIM);
-    Attention<CPU, float> attn(wq, wk, wv, KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    Attention<CPU, float> attn(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    attn.initializeLayer({{"wq", wq}, {"wk", wk}, {"wv", wv}});
 
     auto in = zeros(Shape(DIM));
     in.data()[0] = 1.f;
@@ -227,7 +238,8 @@ TEST(AttentionTest, KVCacheAccumulation) {
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = eye(KV_DIM, DIM);
-    Attention<CPU, float> attn(wq, wk, wv, KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    Attention<CPU, float> attn(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    attn.initializeLayer({{"wq", wq}, {"wk", wk}, {"wv", wv}});
 
     auto in0 = filled(Shape(DIM), 2.f);
     auto in1 = filled(Shape(DIM), 4.f);
@@ -257,9 +269,11 @@ static auto makeZeroBlock() {
     static auto w2 = zeros(Shape(DIM, HIDDEN_DIM));
     static auto w3 = zeros(Shape(HIDDEN_DIM, DIM));
 
-    auto attn = std::make_unique<Attention<CPU, float>>(wq, wk, wv, KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
-    auto ff = std::make_unique<FeedForward<CPU, float>>(w1, w2, w3, DIM, HIDDEN_DIM);
-    return TransformerBlock<CPU, float>(std::move(attn), std::move(ff), w_rms_ffn, wo, w_rms_att, DIM);
+    auto attn = std::make_unique<Attention<CPU, float>>(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
+    auto ff = std::make_unique<FeedForward<CPU, float>>(DIM, HIDDEN_DIM);
+    auto block = TransformerBlock<CPU, float>(std::move(attn), std::move(ff), DIM);
+    block.initializeLayer({{"wo", wo}, {"rms_att", w_rms_att}, {"rms_ffn", w_rms_ffn}, {"wq", wq}, {"wk", wk}, {"wv", wv}, {"w1", w1}, {"w2", w2}, {"w3", w3}});
+    return block;
 }
 
 TEST(TransformerBlockTest, ZeroWeightsPreservesInputViaResidual) {
