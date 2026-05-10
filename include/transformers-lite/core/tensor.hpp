@@ -476,6 +476,30 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
 
     /** @brief Construct an empty tensor with no shape or data. */
     Tensor() : TensorView<T>(nullptr, Shape()), m_memory({}) {}
+
+    /**
+     * @brief Construct a non-owning Tensor that borrows from an existing TensorView.
+     *
+     * m_memory stays empty; the caller (e.g. TransformerWeights) retains ownership.
+     * The source TensorView must outlive this Tensor.
+     *
+     * @param view the TensorView to borrow from
+     */
+    Tensor(TensorView<T> view) : TensorView<T>(view), m_memory({}) {}
+
+    /**
+     * @brief Borrow from a TensorView without copying data or touching m_memory.
+     *
+     * Only updates the shape and data pointer; ownership stays with the source.
+     * The source TensorView must outlive this Tensor.
+     *
+     * @param view the TensorView to borrow from
+     */
+    Tensor &operator=(TensorView<T> view) {
+        this->setShape(view.shape());
+        this->setData(view.data());
+        return *this;
+    }
     /**
      * @brief Copy construct a Tensor, deep-copying the data.
      *

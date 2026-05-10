@@ -66,9 +66,9 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
  private:
     size_t m_dim;                      // transformer dimension
     size_t m_hidden_dim;               // hidden layer dimension
-    TensorView<value_type> m_w1;       // (hidden_dim, dim)
-    TensorView<value_type> m_w2;       // (dim, hidden_dim)
-    TensorView<value_type> m_w3;       // (hidden_dim, dim)
+    Tensor<COMPUTE, value_type> m_w1;  // (hidden_dim, dim)
+    Tensor<COMPUTE, value_type> m_w2;  // (dim, hidden_dim)
+    Tensor<COMPUTE, value_type> m_w3;  // (hidden_dim, dim)
     Tensor<COMPUTE, value_type> m_hb;  // hidden buffer (hidden_dim,)
     Tensor<COMPUTE, value_type> m_hb2; // gate buffer (hidden_dim,)
 };

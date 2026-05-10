@@ -101,7 +101,10 @@ class Memory {
     }
 
     /** @brief Destroy the Memory object and deallocate the buffer. */
-    virtual ~Memory() { m_alloc.deallocate(m_data, m_allocated_size); }
+    virtual ~Memory() {
+        if (m_data != nullptr)
+            m_alloc.deallocate(m_data, m_allocated_size);
+    }
 
     /**
      * @brief resizes the memory buffer

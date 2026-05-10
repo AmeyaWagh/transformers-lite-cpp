@@ -47,7 +47,7 @@ template <template <class> class COMPUTE, class T> class Linear : public LayerBa
     auto outDim() const -> size_t { return m_wcls.shape().shapeVec()[0]; }
 
  private:
-    TensorView<value_type> m_wcls; // (out_dim, in_dim)
+    Tensor<COMPUTE, value_type> m_wcls; // (out_dim, in_dim)
 };
 
 } // namespace transformers_lite

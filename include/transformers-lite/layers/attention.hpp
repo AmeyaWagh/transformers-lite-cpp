@@ -127,9 +127,9 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
     }
 
  private:
-    TensorView<value_type> m_wq;               // query (dim, n_heads * head_size)
-    TensorView<value_type> m_wk;               // key (dim, kv_dim * head_size)
-    TensorView<value_type> m_wv;               // value (dim, kv_dim * head_size)
+    Tensor<COMPUTE, value_type> m_wq;          // query (dim, n_heads * head_size)
+    Tensor<COMPUTE, value_type> m_wk;          // key (dim, kv_dim * head_size)
+    Tensor<COMPUTE, value_type> m_wv;          // value (dim, kv_dim * head_size)
     Tensor<COMPUTE, value_type> m_key_cache;   // key cache (seq_len * kv_dim)
     Tensor<COMPUTE, value_type> m_value_cache; // value cache (seq_len * kv_dim)
     Tensor<COMPUTE, value_type> m_q;           // query tensor (dim)

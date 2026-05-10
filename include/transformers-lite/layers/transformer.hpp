@@ -165,11 +165,11 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
  private:
     typename Attention<COMPUTE, value_type>::ptr m_attention;
     typename FeedForward<COMPUTE, value_type>::ptr m_feedforward;
-    Tensor<COMPUTE, value_type> m_xh;   // pre-branch buffer (dim)
-    Tensor<COMPUTE, value_type> m_xh2;  // post-attention buffer (dim)
-    TensorView<value_type> m_wo;        // output projection (n_heads * head_size, dim)
-    TensorView<value_type> m_w_rms_att; // attention RMSNorm weights (dim)
-    TensorView<value_type> m_w_rms_ffn; // FFN RMSNorm weights (dim)
+    Tensor<COMPUTE, value_type> m_xh;        // pre-branch buffer (dim)
+    Tensor<COMPUTE, value_type> m_xh2;       // post-attention buffer (dim)
+    Tensor<COMPUTE, value_type> m_wo;        // output projection (n_heads * head_size, dim)
+    Tensor<COMPUTE, value_type> m_w_rms_att; // attention RMSNorm weights (dim)
+    Tensor<COMPUTE, value_type> m_w_rms_ffn; // FFN RMSNorm weights (dim)
 };
 
 /**
@@ -265,8 +265,8 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
  private:
     TransformerConfig m_config;
-    TensorView<value_type> m_token_embedding; // view into the embedding table
-    TensorView<value_type> m_rms_final;       // view into the final RMSNorm weights
+    Tensor<COMPUTE, value_type> m_token_embedding; // borrows from embedding table
+    Tensor<COMPUTE, value_type> m_rms_final;       // borrows from final RMSNorm weights
     typename Linear<COMPUTE, value_type>::ptr m_linear;
     Tensor<COMPUTE, value_type> m_x_in;
     Tensor<COMPUTE, value_type> m_out_logits;
