@@ -86,6 +86,25 @@ template <class T> struct CPU : public XPU {
                 out[i] = a[i] / b[i];
     }
 
+    static void scale(T *out, const T *a, T scalar, size_t n) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
+            scaleAVX512(out, a, scalar, n);
+        else
+            for (size_t i = 0; i < n; ++i)
+                out[i] = a[i] * scalar;
+    }
+
+    [[nodiscard]] static T dot(const T *a, const T *b, size_t n) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
+            return static_cast<T>(dotAVX512(a, b, n));
+        else {
+            T val = T(0);
+            for (size_t i = 0; i < n; ++i)
+                val += a[i] * b[i];
+            return val;
+        }
+    }
+
     static void matmul(T *out, const T *x, const T *w, int n, int d) {
         if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
             matmulAVX512(out, x, w, n, d);

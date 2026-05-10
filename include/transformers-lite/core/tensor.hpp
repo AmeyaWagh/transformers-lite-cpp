@@ -174,8 +174,8 @@ class Shape {
      * @return size_t total element count
      */
     [[nodiscard]] auto size() const -> const size_t {
-        if (m_shape.empty()) {
-            return 0;
+        if (isScalar()) {
+            return 1;
         }
         return m_shape[0] * m_stride[0];
     }
@@ -452,6 +452,40 @@ template <class T> class TensorView {
     /** @brief Check if the tensor memory layout is contiguous. */
     [[nodiscard]] auto isContiguous() -> bool { return m_shape.isContiguous(); }
 
+    /**
+     * @brief Extract the scalar value from a rank-0 view.
+     *
+     * @return T the stored scalar
+     */
+    [[nodiscard]] value_type item() const {
+        assert(m_shape.isScalar());
+        return (*this)[0];
+    }
+
+    TensorView &operator+=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] += val;
+        return *this;
+    }
+
+    TensorView &operator-=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] -= val;
+        return *this;
+    }
+
+    TensorView &operator*=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] *= val;
+        return *this;
+    }
+
+    TensorView &operator/=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] /= val;
+        return *this;
+    }
+
  private:
     pointer m_data;
     Shape m_shape;
@@ -498,6 +532,17 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
     Tensor &operator=(TensorView<T> view) {
         this->setShape(view.shape());
         this->setData(view.data());
+        return *this;
+    }
+
+    /**
+     * @brief Assign a scalar value, reshaping to size-1.
+     *
+     * @param val the scalar value to assign
+     */
+    Tensor &operator=(value_type val) {
+        reShape(Shape());
+        (*this)[0] = val;
         return *this;
     }
 
@@ -564,6 +609,16 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
      * @param values vector of initial values (size must match shape)
      */
     Tensor(const Shape &shape, std::vector<value_type> &values) : TensorView<T>(nullptr, shape), m_memory(values) { this->setData(m_memory.data()); }
+
+    /**
+     * @brief Construct a scalar Tensor holding a single value.
+     *
+     * @param val the scalar value to store
+     */
+    Tensor(value_type val) : TensorView<T>(nullptr, Shape()), m_memory(1) {
+        this->setData(m_memory.data());
+        (*this)[0] = val;
+    }
 
     /**
      * @brief Reshape the tensor, reallocating memory if needed.

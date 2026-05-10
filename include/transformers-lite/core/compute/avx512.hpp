@@ -65,5 +65,27 @@ inline void divAVX512(float *out, const float *a, const float *b, size_t n) {
         out[i] = a[i] / b[i];
 }
 
+/** @brief Scalar multiply: out[i] = a[i] * scalar, using AVX-512. */
+inline void scaleAVX512(float *out, const float *a, float scalar, size_t n) {
+    __m512 vs = _mm512_set1_ps(scalar);
+    size_t i = 0;
+    for (; i + 16 <= n; i += 16)
+        _mm512_storeu_ps(out + i, _mm512_mul_ps(_mm512_loadu_ps(a + i), vs));
+    for (; i < n; ++i)
+        out[i] = a[i] * scalar;
+}
+
+/** @brief Dot product of two float arrays using AVX-512. */
+inline float dotAVX512(const float *a, const float *b, size_t n) {
+    __m512 sum = _mm512_setzero_ps();
+    size_t i = 0;
+    for (; i + 16 <= n; i += 16)
+        sum = _mm512_fmadd_ps(_mm512_loadu_ps(a + i), _mm512_loadu_ps(b + i), sum);
+    float val = _mm512_reduce_add_ps(sum);
+    for (; i < n; ++i)
+        val += a[i] * b[i];
+    return val;
+}
+
 } // namespace transformers_lite
 #endif // __AVX512F__

@@ -1,4 +1,6 @@
 #pragma once
+#include <cmath>
+
 #include "../tensor.hpp"
 
 namespace transformers_lite {
@@ -25,15 +27,13 @@ template <template <class> class COMPUTE, typename T> struct RMSNormExpr {
     [[nodiscard]] Shape outputShape() const { return x.shape(); }
 
     void evalInto(TensorView<T> &out) const {
-        T ss = 0;
         const size_t n = x.size();
-        for (size_t j = 0; j < n; ++j)
-            ss += x[j] * x[j];
+        Tensor<COMPUTE, T> ss = COMPUTE<T>::dot(x.data(), x.data(), n);
         ss /= static_cast<T>(n);
         ss += static_cast<T>(1e-5);
-        ss = static_cast<T>(1) / std::sqrt(ss);
-        for (size_t j = 0; j < n; ++j)
-            out[j] = weight[j] * (ss * x[j]);
+        ss = static_cast<T>(1) / std::sqrt(ss.item());
+        COMPUTE<T>::scale(out.data(), x.data(), ss.item(), n);
+        COMPUTE<T>::mul(out.data(), out.data(), weight.data(), n);
     }
 };
 
