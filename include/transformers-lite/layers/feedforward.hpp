@@ -56,9 +56,16 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
      * @return reference to the layer-owned output buffer (dim,)
      */
     Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &in) {
+        assert(in.shape() == Shape(m_dim));
+
+        // Compute Linear projections: m_hb = w1 * in, m_hb2 = w3 * in
         m_hb = matmul(in, m_w1);
         m_hb2 = matmul(in, m_w3);
+
+        // Apply activation and combine
         silu_inpl(m_hb);
+
+        // Element-wise Hadamard product: m_hb = m_hb * m_hb2
         m_hb = hadamard(m_hb, m_hb2); // safe: element-wise, no cross-index aliasing
         m_out = matmul(m_hb, m_w2);
         return m_out;

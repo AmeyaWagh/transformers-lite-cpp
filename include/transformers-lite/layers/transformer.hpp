@@ -102,8 +102,7 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
      * @param hidden_dim FFN hidden dimension
      */
     explicit TransformerBlock(size_t kv_dim, size_t dim, size_t n_heads, size_t kv_heads, size_t seq_len, size_t hidden_dim)
-        : m_attention(std::make_unique<Attention<COMPUTE, value_type>>(kv_dim, dim, n_heads, kv_heads, seq_len)),
-          m_feedforward(std::make_unique<FeedForward<COMPUTE, value_type>>(dim, hidden_dim)), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
+        : m_attention(kv_dim, dim, n_heads, kv_heads, seq_len), m_feedforward(dim, hidden_dim), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
 
     /**
      * @brief Bind all weights from the per-layer state dict.
@@ -114,8 +113,8 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
         m_wo = sd.at("attention.wo.weight");
         m_w_rms_att = sd.at("attention_norm.weight");
         m_w_rms_ffn = sd.at("ffn_norm.weight");
-        m_attention->initializeLayer(sd.getLayerWeights("attention"));
-        m_feedforward->initializeLayer(sd.getLayerWeights("feedforward"));
+        m_attention.initializeLayer(sd.getLayerWeights("attention"));
+        m_feedforward.initializeLayer(sd.getLayerWeights("feedforward"));
     }
 
     /**
@@ -130,21 +129,21 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &x, int pos_) {
         // attention branch
         m_xh = rmsnorm(x, m_w_rms_att);
-        auto &attn = m_attention->forward(m_xh, pos_);
+        auto &attn = m_attention.forward(m_xh, pos_);
         m_xh2 = matmul(attn, m_wo);
         m_x = add(x, m_xh2); // first residual; m_x allocated on first call
 
         // FFN branch
         m_xh = rmsnorm(m_x, m_w_rms_ffn);
-        auto &ffn = m_feedforward->forward(m_xh);
+        auto &ffn = m_feedforward.forward(m_xh);
         m_x = add(m_x, ffn); // second residual; safe: element-wise self-assign
 
         return m_x;
     }
 
  private:
-    typename Attention<COMPUTE, value_type>::ptr m_attention;
-    typename FeedForward<COMPUTE, value_type>::ptr m_feedforward;
+    Attention<COMPUTE, value_type> m_attention;
+    FeedForward<COMPUTE, value_type> m_feedforward;
     Tensor<COMPUTE, value_type> m_xh;        // (dim,) — pre-allocated
     Tensor<COMPUTE, value_type> m_xh2;       // (dim,) — pre-allocated
     Tensor<COMPUTE, value_type> m_x;         // (dim,) — lazy allocated on first forward call
@@ -171,7 +170,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @param config transformer hyperparameters
      * @param state_dict flat map of weight name → tensor view
      */
-    Transformer(TransformerConfig &config, const StateDict<value_type> &state_dict) : m_config(config), m_linear(nullptr) { initializeLayers(state_dict); }
+    Transformer(TransformerConfig &config, const StateDict<value_type> &state_dict) : m_config(config) { initializeLayers(state_dict); }
 
     /**
      * @brief Convenience constructor: builds the state dict from a TransformerWeights object.
@@ -179,7 +178,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @param config transformer hyperparameters
      * @param weights pre-loaded model weights (not owned; must outlive this Transformer)
      */
-    Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config), m_linear(nullptr) {
+    Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config) {
         initializeLayers(weights.stateDict(static_cast<size_t>(config.n_layers)));
     }
 
@@ -199,14 +198,13 @@ template <template <class> class COMPUTE, class T> class Transformer {
         m_token_embedding = state_dict.at("token_embedding_table.weight");
         m_rms_final = state_dict.at("rms_final.weight");
 
+        m_layers.reserve(static_cast<size_t>(m_config.n_layers));
         for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); ++l) {
-            auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len, hidden_dim);
-            block->initializeLayer(state_dict.getLayerWeights("layers." + std::to_string(l)));
-            m_layers.push_back(std::move(block));
+            m_layers.emplace_back(kv_dim, dim, n_heads, n_kv_heads, seq_len, hidden_dim);
+            m_layers.back().initializeLayer(state_dict.getLayerWeights("layers." + std::to_string(l)));
         }
 
-        m_linear = std::make_unique<Linear<COMPUTE, value_type>>();
-        m_linear->initializeLayer(state_dict.getLayerWeights("output"));
+        m_linear.initializeLayer(state_dict.getLayerWeights("output"));
 
         m_x_in.reShape(Shape(dim));   // working buffer for token embedding copy
         m_x_norm.reShape(Shape(dim)); // output buffer for final RMSNorm
@@ -231,10 +229,10 @@ template <template <class> class COMPUTE, class T> class Transformer {
         // Each block reads its input and returns a ref to its own output buffer.
         Tensor<COMPUTE, value_type> *x = &m_x_in;
         for (auto &layer : m_layers)
-            x = &layer->forward(*x, pos);
+            x = &layer.forward(*x, pos);
 
         m_x_norm = rmsnorm(*x, m_rms_final);
-        return m_linear->forward(m_x_norm);
+        return m_linear.forward(m_x_norm);
     }
 
     /** @brief Get the transformer configuration. */
@@ -244,10 +242,10 @@ template <template <class> class COMPUTE, class T> class Transformer {
     TransformerConfig m_config;
     Tensor<COMPUTE, value_type> m_token_embedding; // borrows from embedding table
     Tensor<COMPUTE, value_type> m_rms_final;       // borrows from final RMSNorm weights
-    typename Linear<COMPUTE, value_type>::ptr m_linear;
+    Linear<COMPUTE, value_type> m_linear;
     Tensor<COMPUTE, value_type> m_x_in;   // (dim,) — token embedding working copy
     Tensor<COMPUTE, value_type> m_x_norm; // (dim,) — final RMSNorm output
-    std::vector<typename TransformerBlock<COMPUTE, value_type>::ptr> m_layers;
+    std::vector<TransformerBlock<COMPUTE, value_type>> m_layers;
 };
 
 } // namespace transformers_lite
