@@ -97,36 +97,27 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     using typename Base::value_type;
 
     /**
-     * @brief Construct a TransformerBlock with pre-bound weight views.
+     * @brief Construct a TransformerBlock, creating Attention and FeedForward sub-layers.
      *
-     * @param attention attention layer (takes ownership)
-     * @param feed_forward feed-forward layer (takes ownership)
-     * @param rms_ffn_weight RMS normalization weights for the FFN sub-layer
-     * @param wo output projection weight matrix view
-     * @param w_rms_att RMS normalization weights for the attention sub-layer
-     * @param dim transformer model dimension
+     * Call initializeLayer to bind weights before calling forward.
+     *
+     * @param kv_dim    key/value cache dimension per position
+     * @param dim       transformer model dimension
+     * @param n_heads   number of query heads
+     * @param kv_heads  number of key/value heads
+     * @param seq_len   maximum sequence length
+     * @param hidden_dim FFN hidden dimension
      */
-    explicit TransformerBlock(typename Attention<COMPUTE, value_type>::ptr attention, typename FeedForward<COMPUTE, value_type>::ptr feed_forward,
-                              TensorView<value_type> &rms_ffn_weight, TensorView<value_type> &wo, TensorView<value_type> &w_rms_att, size_t dim)
-        : m_attention(std::move(attention)), m_feedforward(std::move(feed_forward)), m_w_rms_ffn(rms_ffn_weight), m_xh(Shape(dim)), m_xh2(Shape(dim)), m_wo(wo),
-          m_w_rms_att(w_rms_att) {}
+    explicit TransformerBlock(size_t kv_dim, size_t dim, size_t n_heads, size_t kv_heads, size_t seq_len, size_t hidden_dim)
+        : m_attention(std::make_unique<Attention<COMPUTE, value_type>>(kv_dim, dim, n_heads, kv_heads, seq_len)),
+          m_feedforward(std::make_unique<FeedForward<COMPUTE, value_type>>(dim, hidden_dim)), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
 
     /**
-     * @brief Construct a TransformerBlock from dimensions only; call initializeLayer before forward.
+     * @brief Bind all weights from the per-layer state dict.
      *
-     * @param attention attention layer (takes ownership)
-     * @param feed_forward feed-forward layer (takes ownership)
-     * @param dim transformer model dimension
-     */
-    explicit TransformerBlock(typename Attention<COMPUTE, value_type>::ptr attention, typename FeedForward<COMPUTE, value_type>::ptr feed_forward, size_t dim)
-        : m_attention(std::move(attention)), m_feedforward(std::move(feed_forward)), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
-
-    /**
-     * @brief Bind weight views from a per-layer state dict and propagate to sub-layers.
+     * Expected keys: "wq", "wk", "wv", "wo", "w1", "w2", "w3", "rms_att", "rms_ffn".
      *
-     * Expected keys: "wo", "rms_att", "rms_ffn", "wq", "wk", "wv", "w1", "w2", "w3".
-     *
-     * @param state_dict map of weight name to tensor view (already sliced for this layer)
+     * @param state_dict per-layer weight map (pre-sliced for this layer)
      */
     void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
         m_wo = state_dict.at("wo");
@@ -244,9 +235,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
                 {"rms_ffn", state_dict.at(pfx + "ffn_norm.weight")},
             };
 
-            auto attention = std::make_unique<Attention<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len);
-            auto feedforward = std::make_unique<FeedForward<COMPUTE, value_type>>(dim, hidden_dim);
-            auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(std::move(attention), std::move(feedforward), dim);
+            auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len, hidden_dim);
             block->initializeLayer(layer_sd);
             m_layers.push_back(std::move(block));
         }

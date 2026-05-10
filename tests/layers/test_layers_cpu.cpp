@@ -269,9 +269,7 @@ static auto makeZeroBlock() {
     static auto w2 = zeros(Shape(DIM, HIDDEN_DIM));
     static auto w3 = zeros(Shape(HIDDEN_DIM, DIM));
 
-    auto attn = std::make_unique<Attention<CPU, float>>(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN);
-    auto ff = std::make_unique<FeedForward<CPU, float>>(DIM, HIDDEN_DIM);
-    auto block = TransformerBlock<CPU, float>(std::move(attn), std::move(ff), DIM);
+    auto block = TransformerBlock<CPU, float>(KV_DIM, DIM, N_HEADS, N_KV_HEADS, SEQ_LEN, HIDDEN_DIM);
     block.initializeLayer({{"wo", wo}, {"rms_att", w_rms_att}, {"rms_ffn", w_rms_ffn}, {"wq", wq}, {"wk", wk}, {"wv", wv}, {"w1", w1}, {"w2", w2}, {"w3", w3}});
     return block;
 }
