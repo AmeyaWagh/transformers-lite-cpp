@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <transformers-lite/core/exprs.hpp>
 #include <transformers-lite/core/ops.hpp>
 #include <transformers-lite/core/tensor.hpp>
 
@@ -78,12 +79,8 @@ TEST(OpsTest, Matmul) {
 
     Tensor<CPU, float> xout(Shape(2));
 
-    TensorView<float> xout_v(xout.data(), xout.shape());
-    TensorView<float> x_v(x.data(), x.shape());
-    TensorView<float> w_v(w.data(), w.shape());
+    xout = matmul(x, w);
 
-    matmul(xout_v, x_v, w_v);
-
-    EXPECT_FLOAT_EQ(xout_v(0), 6.0f);
-    EXPECT_FLOAT_EQ(xout_v(1), 15.0f);
+    EXPECT_FLOAT_EQ(xout(0), 6.0f);
+    EXPECT_FLOAT_EQ(xout(1), 15.0f);
 }

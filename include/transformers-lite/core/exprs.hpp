@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <type_traits>
 
 #include "ops.hpp"
 
@@ -16,7 +17,22 @@ template <template <class> class COMPUTE, typename T> struct MatMulExpr {
 
     Shape output_shape() const { return Shape{w.shape()[0]}; }
 
-    void eval_into(Tensor<COMPUTE, T> &out) const { matmulCPU(out.data(), x.data(), w.data(), static_cast<int>(x.size()), static_cast<int>(out.size())); }
+    void eval_into(TensorView<T> &out) const {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            matmulAVX512(out.data(), x.data(), w.data(), static_cast<int>(x.size()), static_cast<int>(out.size()));
+        } else {
+            const int n = static_cast<int>(x.size());
+            const int d = static_cast<int>(out.size());
+            int i;
+#pragma omp parallel for private(i)
+            for (i = 0; i < d; i++) {
+                T val = static_cast<T>(0);
+                for (int j = 0; j < n; j++)
+                    val += w[i * n + j] * x[j];
+                out[i] = val;
+            }
+        }
+    }
 };
 
 template <template <class> class COMPUTE, typename T> struct RMSNormExpr {

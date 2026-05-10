@@ -59,49 +59,6 @@ void softmax(float *x, int size) {
 }
 
 /**
- * @brief Matrix multiplication operation
- *
- * W (d,n) @ x (n,) -> xout (d,)
- * by far the most amount of time is spent inside this little function
- *
- * TODO: implement a generic method for tensors.
- *
- * @param xout output tensor.
- * @param x input tensor.
- * @param w weight matrix.
- * @param n input vector dimension.
- * @param d output vector dimension.
- */
-void matmulCPU(float *xout, const float *x, const float *w, int n, int d) {
-    int i;
-#pragma omp parallel for private(i)
-    for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
-        }
-        xout[i] = val;
-    }
-}
-
-/**
- * @brief Matrix multiplication
- * xout = w * xin
- *
- * @tparam T datatype
- * @param xout output tensor (m)
- * @param xin input tensor (n)
- * @param w weight matrix (mxn)
- */
-template <typename T> void matmul(TensorView<T> &xout, const TensorView<T> &xin, const TensorView<T> &w) {
-    if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
-        matmulAVX512(xout.data(), xin.data(), w.data(), xin.size(), xout.size());
-    } else {
-        matmulCPU(xout.data(), xin.data(), w.data(), xin.size(), xout.size());
-    }
-}
-
-/**
  * @brief RMS normalization on tensor views.
  *
  * out[j] = weight[j] * (x[j] / rms(x))

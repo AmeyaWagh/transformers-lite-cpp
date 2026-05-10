@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <transformers-lite/core/exprs.hpp>
 #include <transformers-lite/core/ops.hpp>
 #include <transformers-lite/core/tensor.hpp>
 
@@ -25,13 +26,10 @@ TEST(MatmulCPU, SquareMatrix) {
     auto x = makeTensor({1.f, 1.f});
     Tensor<CPU, float> out(Shape(2));
 
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    matmul(outv, xv, wv);
+    out = matmul(x, w);
 
-    EXPECT_FLOAT_EQ(outv(0), 3.f);
-    EXPECT_FLOAT_EQ(outv(1), 7.f);
+    EXPECT_FLOAT_EQ(out(0), 3.f);
+    EXPECT_FLOAT_EQ(out(1), 7.f);
 }
 
 TEST(MatmulCPU, RectangularMatrix) {
@@ -47,13 +45,10 @@ TEST(MatmulCPU, RectangularMatrix) {
     auto x = makeTensor({1.f, 1.f, 1.f});
     Tensor<CPU, float> out(Shape(2));
 
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    matmul(outv, xv, wv);
+    out = matmul(x, w);
 
-    EXPECT_FLOAT_EQ(outv(0), 6.f);
-    EXPECT_FLOAT_EQ(outv(1), 15.f);
+    EXPECT_FLOAT_EQ(out(0), 6.f);
+    EXPECT_FLOAT_EQ(out(1), 15.f);
 }
 
 TEST(MatmulCPU, ZeroVector) {
@@ -65,13 +60,10 @@ TEST(MatmulCPU, ZeroVector) {
     auto x = makeTensor({0.f, 0.f});
     Tensor<CPU, float> out(Shape(2));
 
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    matmul(outv, xv, wv);
+    out = matmul(x, w);
 
-    EXPECT_FLOAT_EQ(outv(0), 0.f);
-    EXPECT_FLOAT_EQ(outv(1), 0.f);
+    EXPECT_FLOAT_EQ(out(0), 0.f);
+    EXPECT_FLOAT_EQ(out(1), 0.f);
 }
 
 // ── rmsnorm ──────────────────────────────────────────────────────────────────

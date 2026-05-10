@@ -3,6 +3,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "../core/exprs.hpp"
 #include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
@@ -62,12 +63,12 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
      * @return reference to the layer-owned output buffer (dim,)
      */
     Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &in, int pos_) {
-        TensorView<value_type> k = m_key_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_);
-        TensorView<value_type> v = m_value_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_);
+        Tensor<COMPUTE, value_type> k(m_key_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_));
+        Tensor<COMPUTE, value_type> v(m_value_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_));
 
-        matmul(m_q, in, m_wq);
-        matmul(k, in, m_wk);
-        matmul(v, in, m_wv);
+        m_q = matmul(in, m_wq);
+        k = matmul(in, m_wk);
+        v = matmul(in, m_wv);
 
         rope(m_q, k, pos_, m_head_size);
 
