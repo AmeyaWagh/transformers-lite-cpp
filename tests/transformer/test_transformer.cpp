@@ -68,6 +68,8 @@ class TransformerFixture : public ::testing::Test {
         load(f, weights.rms_final_weight, Shape(D));
         load(f, weights.wcls, Shape(V, D));
         std::fclose(f);
+
+        weights.stateDict(2).print();
     }
 };
 

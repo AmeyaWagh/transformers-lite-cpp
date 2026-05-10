@@ -274,20 +274,19 @@ class Shape {
  * @param shape shape to print
  * @return std::ostream& the output stream
  */
-std::ostream &operator<<(std::ostream &os, const Shape &shape) {
-    os << "Shape (";
+inline std::ostream &operator<<(std::ostream &os, const Shape &shape) {
+    os << "[";
     if (shape.isScalar()) {
-        std::cout << "None";
+        os << "scalar";
     } else {
-        auto &vec = shape.shapeVec();
+        const auto &vec = shape.shapeVec();
         for (size_t i = 0; i < vec.size(); ++i) {
-            if (i > 0) {
-                os << ",";
-            }
+            if (i)
+                os << ", ";
             os << vec[i];
         }
     }
-    os << ")";
+    os << "]";
     return os;
 }
 

@@ -1,6 +1,10 @@
 #pragma once
+#include <algorithm>
+#include <iostream>
+#include <ostream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "tensor.hpp"
 
@@ -42,6 +46,17 @@ template <typename T> class StateDict {
                 result.emplace(key.substr(prefix_dot.size()), val);
         }
         return StateDict<T>(std::move(result));
+    }
+
+    /** @brief Print all keys and their tensor shapes to os, sorted alphabetically. */
+    void print(std::ostream &os = std::cout) const {
+        std::vector<std::string> keys;
+        keys.reserve(m_map.size());
+        for (const auto &[key, _] : m_map)
+            keys.push_back(key);
+        std::sort(keys.begin(), keys.end());
+        for (const auto &key : keys)
+            os << key << ": " << m_map.at(key).shape() << "\n";
     }
 
  private:
