@@ -1,12 +1,14 @@
 #pragma once
-#include <cstdlib>
-#include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
-#include "../core/memory.hpp"
 #include "../core/ops.hpp"
+#include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
-#include "../core/types.hpp"
+#include "attention.hpp"
+#include "feedforward.hpp"
+#include "linear.hpp"
 
 namespace transformers_lite {
 
@@ -24,6 +26,7 @@ struct TransformerConfig {
     int vocab_size; // vocabulary size, usually 256 (byte-level)
     int seq_len;    // max sequence length
 };
+
 /**
  * @brief Holds all weight tensors for a Transformer model.
  *
@@ -49,200 +52,35 @@ template <template <class> class COMPUTE, class T> struct TransformerWeights {
     Tensor<COMPUTE, T> rms_final_weight; // (dim,)
     // (optional) classifier weights for the logits, on the last layer
     Tensor<COMPUTE, T> wcls; // (vocab_size, dim)
-};
-
-/**
- * @brief Multi-head attention layer with KV cache and RoPE positional encoding.
- *
- * @tparam COMPUTE compute backend
- * @tparam T datatype
- */
-template <template <class> class COMPUTE, class T> class Attention {
- public:
-    using ptr = typename std::unique_ptr<Attention<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
 
     /**
-     * @brief Construct an Attention layer.
+     * @brief Return all weight tensors as a flat state dict with PyTorch-style keys.
      *
-     * @param wq query weight matrix view
-     * @param wk key weight matrix view
-     * @param wv value weight matrix view
-     * @param kv_dim key/value cache dimension per position
-     * @param dim transformer model dimension
-     * @param n_heads number of query heads
-     * @param kv_heads number of key/value heads
-     * @param seq_len maximum sequence length
+     * Per-layer weights are pre-sliced: e.g. "layers.0.attention.wq.weight" is
+     * already a view into layer 0's wq slice. All views point into this object,
+     * which must outlive the returned map.
+     *
+     * @param n_layers number of transformer layers
      */
-    explicit Attention(TensorView<value_type> &wq, TensorView<value_type> &wk, TensorView<value_type> &wv, size_t kv_dim, size_t dim, size_t n_heads,
-                       size_t kv_heads, size_t seq_len)
-        : m_wq(wq), m_wk(wk), m_wv(wv), m_key_cache(Shape(seq_len * kv_dim)), m_value_cache(Shape(seq_len * kv_dim)), m_q(Shape(dim)),
-          m_att(Shape(n_heads, seq_len)), m_kv_dim(kv_dim), m_dim(dim), m_n_heads(n_heads), m_kv_heads(kv_heads), m_head_size(dim / n_heads),
-          m_seq_len(seq_len) {}
-
-    /**
-     * @brief Run the attention forward pass for a single position.
-     *
-     * Computes QKV projections, applies RoPE, performs multi-head attention
-     * with cached keys/values, and writes the result to xb.
-     *
-     * @param in input tensor (dim)
-     * @param xb output tensor (dim)
-     * @param pos_ current sequence position
-     */
-    void forward(Tensor<COMPUTE, value_type> &in, Tensor<COMPUTE, value_type> &xb, int pos_) {
-        // in shape (dim), xb shape (dim)
-
-        // key and value point to the kv cache
-        // Note kv_cache is (seq_len*kv_dim) i.e (seq_len*(dim*n_kv_heads/n_heads))
-        TensorView<value_type> k = m_key_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_);
-        TensorView<value_type> v = m_value_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_);
-
-        // qkv matmuls for this position
-        matmul(m_q, in, m_wq);
-        matmul(k, in, m_wk);
-        matmul(v, in, m_wv);
-
-        // RoPE relative positional encoding: complex-valued rotate q and k in
-        // each head
-        // Currently CPU only
-        for (size_t i = 0; i < m_dim; i += 2) {
-            size_t head_dim = i % m_head_size;
-            float32_t freq = 1.0f / powf(10000.0f, head_dim / static_cast<float32_t>(m_head_size));
-            float32_t val = pos_ * freq;
-            float32_t fcr = cosf(val);
-            float32_t fci = sinf(val);
-            size_t rotn = i < m_kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
-            for (size_t v = 0; v < rotn; v++) {
-                TensorView<value_type> vec = v == 0 ? m_q : k; // the vector to rotate (query or key)
-                value_type v0 = vec[i];
-                value_type v1 = vec[i + 1];
-                vec[i] = v0 * fcr - v1 * fci;
-                vec[i + 1] = v0 * fci + v1 * fcr;
-            }
+    auto stateDict(size_t n_layers) const -> StateDict<T> {
+        StateDict<T> sd;
+        sd["token_embedding_table.weight"] = token_embedding_table;
+        sd["rms_final.weight"] = rms_final_weight;
+        sd["output.weight"] = wcls;
+        for (size_t i = 0; i < n_layers; ++i) {
+            const std::string pfx = "layers." + std::to_string(i) + ".";
+            sd[pfx + "attention.wq.weight"] = wq.slice(i);
+            sd[pfx + "attention.wk.weight"] = wk.slice(i);
+            sd[pfx + "attention.wv.weight"] = wv.slice(i);
+            sd[pfx + "attention.wo.weight"] = wo.slice(i);
+            sd[pfx + "attention_norm.weight"] = rms_att_weight.slice(i);
+            sd[pfx + "ffn_norm.weight"] = rms_ffn_weight.slice(i);
+            sd[pfx + "feedforward.w1.weight"] = w1.slice(i);
+            sd[pfx + "feedforward.w2.weight"] = w2.slice(i);
+            sd[pfx + "feedforward.w3.weight"] = w3.slice(i);
         }
-
-        // multihead attention. iterate over all heads
-        size_t kv_mul = m_n_heads / m_kv_heads;
-        size_t h;
-#pragma omp parallel for private(h)
-        for (h = 0; h < m_n_heads; h++) {
-            // get the query vector for this head
-            TensorView<value_type> q_ = m_q.view(Shape(m_n_heads, m_head_size)).slice(h);
-
-            // attention scores for this head
-            TensorView<value_type> att_ = m_att.slice(h);
-
-            // iterate over all timesteps, including the current one
-            for (size_t t = 0; t <= pos_; t++) {
-                // get the key vector for this head and at this timestep
-                // head_size = (dim / n_heads)
-                // kv_cache is (seq_len * kv_dim)
-                //          -> (seq_len * (dim * n_kv_heads / n_heads))
-                //          -> (seq_len*n_kv_heads, dim/n_heads)
-                //          -> (seq_len*n_kv_heads, head_size)
-                // offset = t * m_kv_dim + (h / kv_mul)
-                //          -> t * (dim * n_kv_heads / n_heads) + h * n_kv_heads / n_heads
-                //          -> (t * dim + h)*(n_kv_heads / n_heads)
-                TensorView<value_type> k_(m_key_cache.data() + t * m_kv_dim + (h / kv_mul) * m_head_size, Shape(m_head_size));
-                // calculate the attention score as the dot product of q and k
-                value_type score = dot_prod(q_, k_);
-                score /= sqrtf(m_head_size);
-                // save the score to the attention buffer
-                att_(t) = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos
-            // inclusively
-            softmax(att_, pos_ + 1);
-
-            // weighted sum of the values, store back into xb
-            // view xb of shape (dim) as (n_heads * head_size)
-            TensorView<value_type> xb_ = xb.view(Shape(m_n_heads, m_head_size)).slice(h);
-
-            setZero(xb_);
-            for (size_t t = 0; t <= pos_; t++) {
-                // get the value vector for this head and at this timestep
-                TensorView<value_type> v_(m_value_cache.data() + t * m_kv_dim + (h / kv_mul) * m_head_size, Shape(m_head_size));
-                // get the attention weight for this timestep
-                value_type a = att_[t];
-                // accumulate the weighted value into xb
-                for (size_t i = 0; i < m_head_size; i++) {
-                    xb_(i) += a * v_(i);
-                }
-            }
-        }
+        return sd;
     }
-
- private:
-    TensorView<value_type> m_wq;               // query (dim, n_heads * head_size)
-    TensorView<value_type> m_wk;               // key (dim, kv_dim * head_size)
-    TensorView<value_type> m_wv;               // value (dim, kv_dim * head_size)
-    Tensor<COMPUTE, value_type> m_key_cache;   // key cache (seq_len * kv_dim)
-    Tensor<COMPUTE, value_type> m_value_cache; // value cache (seq_len * kv_dim)
-    Tensor<COMPUTE, value_type> m_q;           // query tensor (dim)
-    Tensor<COMPUTE, value_type> m_att;         // attention tensor (n_heads * seq_len)
-    size_t m_kv_dim;                           // key value cache dimension ((dim * n_kv_heads) / n_heads)
-    size_t m_dim;                              // transformer dimension
-    size_t m_n_heads;                          // number of heads.
-    size_t m_kv_heads;                         // number of key/value heads (can be < query heads because of multiquery)
-    size_t m_head_size;                        // (dim / n_heads)
-    size_t m_seq_len;                          // max sequence length
-};
-
-/**
- * @brief Feed-forward network layer with SwiGLU activation.
- *
- * Implements: dropout(w2(silu(w1(x)) * w3(x)))
- *
- * @tparam COMPUTE compute backend
- * @tparam T datatype
- */
-template <template <class> class COMPUTE, class T> class FeedForward {
- public:
-    using ptr = std::unique_ptr<FeedForward<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
-
-    /**
-     * @brief Construct a FeedForward layer.
-     *
-     * @param w1_ first weight matrix view (hidden_dim, dim)
-     * @param w2_ second weight matrix view (dim, hidden_dim)
-     * @param w3_ third weight matrix view (hidden_dim, dim)
-     * @param dim transformer model dimension
-     * @param hidden_dim hidden layer dimension
-     */
-    FeedForward(TensorView<value_type> &w1_, TensorView<value_type> &w2_, TensorView<value_type> &w3_, size_t dim, size_t hidden_dim)
-        : m_dim(dim), m_hidden_dim(hidden_dim), m_w1(w1_), m_w2(w2_), m_w3(w3_), m_hb(Shape(hidden_dim)), m_hb2(Shape(hidden_dim)) {}
-
-    /**
-     * @brief forward pass for feedforward layer.
-     *
-     * self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
-     */
-    void forward(Tensor<COMPUTE, value_type> &in, Tensor<COMPUTE, value_type> &out) {
-        matmul(m_hb, in, m_w1);
-        matmul(m_hb2, in, m_w3);
-
-        // SwiGLU non-linearity
-        silu_inpl(m_hb);
-
-        hadamard_prod(m_hb, m_hb, m_hb2);
-
-        // final matmul to get the output of the ffn
-        matmul(out, m_hb, m_w2);
-    }
-
- private:
-    size_t m_dim;                      // transformer dimension.
-    size_t m_hidden_dim;               // hidden layer dimension.
-    TensorView<value_type> m_w1;       // (hidden_dim, dim)
-    TensorView<value_type> m_w2;       // (hidden_dim, dim)
-    TensorView<value_type> m_w3;       // (hidden_dim, dim)
-    Tensor<COMPUTE, value_type> m_hb;  // buffer for hidden dimension (hidden_dim,)
-    Tensor<COMPUTE, value_type> m_hb2; // buffer for hidden dimension (hidden_dim,)
 };
 
 /**
@@ -251,26 +89,46 @@ template <template <class> class COMPUTE, class T> class FeedForward {
  * @tparam COMPUTE compute backend
  * @tparam T datatype
  */
-template <template <class> class COMPUTE, class T> class TransformerBlock {
+template <template <class> class COMPUTE, class T> class TransformerBlock : public LayerBase<COMPUTE, T, TransformerBlock<COMPUTE, T>> {
+    using Base = LayerBase<COMPUTE, T, TransformerBlock<COMPUTE, T>>;
+
  public:
-    using ptr = typename std::unique_ptr<TransformerBlock<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
+    using typename Base::compute;
+    using typename Base::ptr;
+    using typename Base::value_type;
 
     /**
-     * @brief Construct a TransformerBlock.
+     * @brief Construct a TransformerBlock, creating Attention and FeedForward sub-layers.
      *
-     * @param attention attention layer (takes ownership)
-     * @param feed_forward feed-forward layer (takes ownership)
-     * @param rms_ffn_weight RMS normalization weights for the FFN sub-layer
-     * @param wo output projection weight matrix view
-     * @param w_rms_att RMS normalization weights for the attention sub-layer
-     * @param dim transformer model dimension
+     * Call initializeLayer to bind weights before calling forward.
+     *
+     * @param kv_dim    key/value cache dimension per position
+     * @param dim       transformer model dimension
+     * @param n_heads   number of query heads
+     * @param kv_heads  number of key/value heads
+     * @param seq_len   maximum sequence length
+     * @param hidden_dim FFN hidden dimension
      */
-    explicit TransformerBlock(Attention<COMPUTE, value_type>::ptr attention, FeedForward<COMPUTE, value_type>::ptr feed_forward,
-                              TensorView<value_type> &rms_ffn_weight, TensorView<value_type> &wo, TensorView<value_type> &w_rms_att, size_t dim)
-        : m_attention(std::move(attention)), m_feedforward(std::move(feed_forward)), m_w_rms_ffn(rms_ffn_weight), m_xh(Shape(dim)), m_xh2(Shape(dim)), m_wo(wo),
-          m_w_rms_att(w_rms_att) {}
+    explicit TransformerBlock(size_t kv_dim, size_t dim, size_t n_heads, size_t kv_heads, size_t seq_len, size_t hidden_dim)
+        : m_attention(std::make_unique<Attention<COMPUTE, value_type>>(kv_dim, dim, n_heads, kv_heads, seq_len)),
+          m_feedforward(std::make_unique<FeedForward<COMPUTE, value_type>>(dim, hidden_dim)), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
+
+    /**
+     * @brief Bind all weights from the per-layer state dict.
+     *
+     * Expected keys follow the PyTorch naming after the "layers.N." prefix is stripped:
+     *   "attention.wo.weight", "attention_norm.weight", "ffn_norm.weight",
+     *   "attention.{wq,wk,wv}.weight", "feedforward.{w1,w2,w3}.weight"
+     *
+     * @param sd per-layer StateDict (pre-sliced for this layer)
+     */
+    void initializeLayer(const StateDict<value_type> &sd) {
+        m_wo = sd.at("attention.wo.weight");
+        m_w_rms_att = sd.at("attention_norm.weight");
+        m_w_rms_ffn = sd.at("ffn_norm.weight");
+        m_attention->initializeLayer(sd.getLayerWeights("attention"));
+        m_feedforward->initializeLayer(sd.getLayerWeights("feedforward"));
+    }
 
     /**
      * @brief Forward pass through the transformer block.
@@ -285,7 +143,7 @@ template <template <class> class COMPUTE, class T> class TransformerBlock {
         // attention rmsnorm
         rmsnorm(m_xh, x, m_w_rms_att);
 
-        // forward attention.
+        // forward attention
         m_attention->forward(m_xh, m_xh, pos_);
 
         // final matmul to get the output of the attention
@@ -297,7 +155,7 @@ template <template <class> class COMPUTE, class T> class TransformerBlock {
         // ffn rmsnorm
         rmsnorm(m_xh, x, m_w_rms_ffn);
 
-        // forward FFN.
+        // forward FFN
         m_feedforward->forward(m_xh, m_xh);
 
         // residual connection
@@ -305,53 +163,13 @@ template <template <class> class COMPUTE, class T> class TransformerBlock {
     }
 
  private:
-    Attention<COMPUTE, value_type>::ptr m_attention;
-    FeedForward<COMPUTE, value_type>::ptr m_feedforward;
-    // unsigned long long m_l;
-    Tensor<COMPUTE, value_type> m_xh;  // hidden state same a x but used inside branch
-    Tensor<COMPUTE, value_type> m_xh2; // hidden state2 same a x but used inside branch
-    // weights for matmuls. note dim == n_heads * head_size
-    TensorView<value_type> m_wo;        // (n_heads * head_size, dim)
-    TensorView<value_type> m_w_rms_att; // (dim)
-    TensorView<value_type> m_w_rms_ffn; // (dim)
-};
-
-/**
- * @brief Linear (fully-connected) layer performing a matrix multiplication.
- *
- * @tparam COMPUTE compute backend
- * @tparam T datatype
- */
-template <template <class> class COMPUTE, class T> class Linear {
- public:
-    using ptr = typename std::unique_ptr<Linear<COMPUTE, T>>;
-    using value_type = T;
-    using compute = COMPUTE<T>;
-
-    /**
-     * @brief Construct a Linear layer.
-     *
-     * @param wcls weight matrix view (out_dim, in_dim)
-     */
-    Linear(TensorView<value_type> &wcls) : m_wcls(wcls) {}
-
-    /**
-     * @brief Forward pass: out = wcls * x.
-     *
-     * @param x input tensor
-     * @param out output tensor
-     */
-    void forward(const Tensor<COMPUTE, value_type> &x, Tensor<COMPUTE, value_type> &out) { matmul(out, x, m_wcls); }
-
-    /**
-     * @brief Get the output dimension of this layer.
-     *
-     * @return size_t output dimension
-     */
-    auto outDim() const -> const size_t { return m_wcls.shape().shapeVec()[0]; }
-
- private:
-    TensorView<value_type> m_wcls; // classification weights (out_dim, in_dim)
+    typename Attention<COMPUTE, value_type>::ptr m_attention;
+    typename FeedForward<COMPUTE, value_type>::ptr m_feedforward;
+    Tensor<COMPUTE, value_type> m_xh;        // pre-branch buffer (dim)
+    Tensor<COMPUTE, value_type> m_xh2;       // post-attention buffer (dim)
+    Tensor<COMPUTE, value_type> m_wo;        // output projection (n_heads * head_size, dim)
+    Tensor<COMPUTE, value_type> m_w_rms_att; // attention RMSNorm weights (dim)
+    Tensor<COMPUTE, value_type> m_w_rms_ffn; // FFN RMSNorm weights (dim)
 };
 
 /**
@@ -367,58 +185,60 @@ template <template <class> class COMPUTE, class T> class Transformer {
     using compute = COMPUTE<T>;
 
     /**
-     * @brief Construct a Transformer from a config and pre-loaded weights.
+     * @brief Construct from a flat PyTorch-style state dict.
+     *
+     * All TensorViews in the dict must outlive this Transformer.
      *
      * @param config transformer hyperparameters
-     * @param weights pre-loaded model weights
+     * @param state_dict flat map of weight name → tensor view
      */
-    Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config), m_weights(weights), m_linear(nullptr) {
-        initializeLayers();
+    Transformer(TransformerConfig &config, const StateDict<value_type> &state_dict) : m_config(config), m_linear(nullptr) { initializeLayers(state_dict); }
+
+    /**
+     * @brief Convenience constructor: builds the state dict from a TransformerWeights object.
+     *
+     * @param config transformer hyperparameters
+     * @param weights pre-loaded model weights (not owned; must outlive this Transformer)
+     */
+    Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config), m_linear(nullptr) {
+        initializeLayers(weights.stateDict(static_cast<size_t>(config.n_layers)));
     }
 
     /**
-     * @brief Build attention, feed-forward, and linear layers from the loaded weights.
+     * @brief Build layers from a flat state dict.
+     *
+     * Expected keys follow the PyTorch naming convention:
+     *   "token_embedding_table.weight", "rms_final.weight", "output.weight",
+     *   "layers.{i}.attention.{wq,wk,wv,wo}.weight",
+     *   "layers.{i}.{attention,ffn}_norm.weight",
+     *   "layers.{i}.feedforward.{w1,w2,w3}.weight"
+     *
+     * @param state_dict flat map of weight name → tensor view
      */
-    void initializeLayers() {
-        size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
-        size_t dim = static_cast<size_t>(m_config.dim);
-        size_t n_heads = static_cast<size_t>(m_config.n_heads);
-        size_t head_size = static_cast<size_t>(m_config.dim / m_config.n_heads);
-        size_t hidden_dim = static_cast<size_t>(m_config.hidden_dim);
-        size_t n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
-        size_t seq_len = static_cast<size_t>(m_config.seq_len);
+    void initializeLayers(const StateDict<value_type> &state_dict) {
+        const size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
+        const size_t dim = static_cast<size_t>(m_config.dim);
+        const size_t n_heads = static_cast<size_t>(m_config.n_heads);
+        const size_t hidden_dim = static_cast<size_t>(m_config.hidden_dim);
+        const size_t n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
+        const size_t seq_len = static_cast<size_t>(m_config.seq_len);
 
-        // NOTE dim == n_heads * head_size
+        m_token_embedding = state_dict.at("token_embedding_table.weight");
+        m_rms_final = state_dict.at("rms_final.weight");
 
-        for (size_t layer_idx = 0; layer_idx < m_config.n_layers; layer_idx++) {
-            // Attention layer
-            TensorView<value_type> wq = m_weights.wq.slice(layer_idx); // (dim, n_heads * head_size)
-            TensorView<value_type> wk = m_weights.wk.slice(layer_idx); // (dim, n_kv_heads * head_size)
-            TensorView<value_type> wv = m_weights.wv.slice(layer_idx); // (dim, n_kv_heads * head_size)
-            auto attention = std::make_unique<Attention<COMPUTE, value_type>>(wq, wk, wv, kv_dim, dim, n_heads, n_kv_heads, seq_len);
-
-            // FF layer
-            TensorView<value_type> w1 = m_weights.w1.slice(layer_idx); //(hidden_dim, dim)
-            TensorView<value_type> w2 = m_weights.w2.slice(layer_idx); //(dim,hidden_dim)
-            TensorView<value_type> w3 = m_weights.w3.slice(layer_idx); //(hidden_dim, dim)
-            auto feedforward = std::make_unique<FeedForward<COMPUTE, value_type>>(w1, w2, w3, dim, hidden_dim);
-
-            // TensorBlock
-            TensorView<value_type> wo = m_weights.wo.slice(layer_idx);                    // (dim, dim)
-            TensorView<value_type> w_rms_att = m_weights.rms_att_weight.slice(layer_idx); // (dim)
-            TensorView<value_type> w_rms_ffn = m_weights.rms_ffn_weight.slice(layer_idx); // (dim)
-            auto tensorblock =
-                std::make_unique<TransformerBlock<COMPUTE, value_type>>(std::move(attention), std::move(feedforward), w_rms_ffn, wo, w_rms_att, dim);
-
-            m_layers.push_back(std::move(tensorblock));
+        for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); ++l) {
+            auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len, hidden_dim);
+            block->initializeLayer(state_dict.getLayerWeights("layers." + std::to_string(l)));
+            m_layers.push_back(std::move(block));
         }
 
-        m_linear = std::make_unique<Linear<COMPUTE, value_type>>(m_weights.wcls);
+        m_linear = std::make_unique<Linear<COMPUTE, value_type>>();
+        m_linear->initializeLayer(state_dict.getLayerWeights("output"));
         m_out_logits.reShape(Shape(m_linear->outDim()));
         m_x_in.reShape(Shape(dim));
     }
 
-    ~Transformer() {}
+    ~Transformer() = default;
 
     /**
      * @brief Run the full transformer forward pass for one token.
@@ -428,24 +248,15 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @param logits output CPU tensor filled with logits over the vocabulary
      */
     void forward(int token, int pos, Tensor<CPU, value_type> &logits) {
-        // copy the token embedding into x
-        TensorView<value_type> content_row = m_weights.token_embedding_table.slice(token); // (dim)
-
-        // Prepare input tensors. Copy from CPU to device
+        TensorView<value_type> content_row = m_token_embedding.slice(token);
         m_x_in.copyFrom(content_row);
 
-        // forward all the layers
         for (auto &layer : m_layers) {
             layer->forward(m_x_in, pos);
         }
 
-        // final rmsnorm
-        rmsnorm(m_x_in, m_x_in, m_weights.rms_final_weight);
-
-        // classifier into logits
+        rmsnorm(m_x_in, m_x_in, m_rms_final);
         m_linear->forward(m_x_in, m_out_logits);
-
-        // Copy from tensor on COMPUTE to a CPU Tensor.
         logits.copyFrom(m_out_logits);
     }
 
@@ -453,12 +264,13 @@ template <template <class> class COMPUTE, class T> class Transformer {
     auto getConfig() const -> const TransformerConfig & { return m_config; }
 
  private:
-    TransformerConfig m_config;                                                // the hyperparameters of the architecture (the blueprint)
-    TransformerWeights<COMPUTE, value_type> m_weights;                         // the weights of the model
-    Linear<COMPUTE, value_type>::ptr m_linear;                                 // linear layer
-    Tensor<COMPUTE, value_type> m_x_in;                                        // input tensor.
-    Tensor<COMPUTE, value_type> m_out_logits;                                  // logits output buffer on COMPUTE
-    std::vector<typename TransformerBlock<COMPUTE, value_type>::ptr> m_layers; // transformer block layers
+    TransformerConfig m_config;
+    Tensor<COMPUTE, value_type> m_token_embedding; // borrows from embedding table
+    Tensor<COMPUTE, value_type> m_rms_final;       // borrows from final RMSNorm weights
+    typename Linear<COMPUTE, value_type>::ptr m_linear;
+    Tensor<COMPUTE, value_type> m_x_in;
+    Tensor<COMPUTE, value_type> m_out_logits;
+    std::vector<typename TransformerBlock<COMPUTE, value_type>::ptr> m_layers;
 };
 
 } // namespace transformers_lite

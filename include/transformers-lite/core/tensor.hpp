@@ -106,7 +106,7 @@ class Shape {
      * @param args other indices of the shape dimension.
      * @return Shape sliced shape Shape[nDIM - 1 + sizeof...(args)]
      */
-    template <typename... ARGS> auto slice(size_t idx, ARGS... args) -> Shape {
+    template <typename... ARGS> auto slice(size_t idx, ARGS... args) const -> Shape {
         /**
          * Let Original shape of a tensor be Shape(2,3,5) stride = {15,5,1} nDIM=3 and names = (C,H,W)
          *
@@ -141,7 +141,7 @@ class Shape {
      * @param args other indices of the shape dimension.
      * @return size_t - offset value from the beginning of the original tensor.
      */
-    template <typename... ARGS> auto offset(size_t idx, ARGS... args) -> size_t {
+    template <typename... ARGS> auto offset(size_t idx, ARGS... args) const -> size_t {
         /**
          * Lets take the same example
          * Let Original shape of a tensor be Shape(2,3,5) stride = {15,5,1} nDIM=3
@@ -274,20 +274,19 @@ class Shape {
  * @param shape shape to print
  * @return std::ostream& the output stream
  */
-std::ostream &operator<<(std::ostream &os, const Shape &shape) {
-    os << "Shape (";
+inline std::ostream &operator<<(std::ostream &os, const Shape &shape) {
+    os << "[";
     if (shape.isScalar()) {
-        std::cout << "None";
+        os << "scalar";
     } else {
-        auto &vec = shape.shapeVec();
+        const auto &vec = shape.shapeVec();
         for (size_t i = 0; i < vec.size(); ++i) {
-            if (i > 0) {
-                os << ",";
-            }
+            if (i)
+                os << ", ";
             os << vec[i];
         }
     }
-    os << ")";
+    os << "]";
     return os;
 }
 
@@ -309,6 +308,9 @@ template <class T> class TensorView {
     using ptr = typename std::shared_ptr<TensorView<T>>;        ///< shared pointer type
     using unique_ptr = typename std::unique_ptr<TensorView<T>>; ///< unique pointer type
 
+    /** @brief Default construct a null (unbound) view. Must be rebound via operator= before use. */
+    TensorView() : m_data(nullptr), m_shape() {}
+
     /**
      * @brief Construct a TensorView from a raw pointer and shape.
      *
@@ -322,14 +324,20 @@ template <class T> class TensorView {
      *
      * @param view tensor view to copy from
      */
-    TensorView(const TensorView &view) : m_data(view.data()), m_shape(view.shape()) {}
+    TensorView(const TensorView &view) : m_data(view.m_data), m_shape(view.shape()) {}
 
     /**
      * @brief Copy construct a TensorView (non-const overload).
      *
      * @param view tensor view to copy from
      */
-    TensorView(TensorView &view) : m_data(view.data()), m_shape(view.shape()) {}
+    TensorView(TensorView &view) : m_data(view.m_data), m_shape(view.shape()) {}
+
+    TensorView &operator=(const TensorView &other) {
+        m_data = other.m_data;
+        m_shape = other.m_shape;
+        return *this;
+    }
 
     /**
      * @brief Access an element using multi-dimensional indices.
@@ -390,6 +398,12 @@ template <class T> class TensorView {
         size_t offset = m_shape.offset(idx, args...);
         Shape new_shape = m_shape.slice(idx, args...);
         return {begin + offset, new_shape};
+    }
+
+    template <typename... ARGS> auto slice(size_t idx, ARGS... args) const -> TensorView<T> {
+        size_t offset = m_shape.offset(idx, args...);
+        Shape new_shape = m_shape.slice(idx, args...);
+        return {const_cast<pointer>(data()) + offset, new_shape};
     }
 
     /**
@@ -462,6 +476,30 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
 
     /** @brief Construct an empty tensor with no shape or data. */
     Tensor() : TensorView<T>(nullptr, Shape()), m_memory({}) {}
+
+    /**
+     * @brief Construct a non-owning Tensor that borrows from an existing TensorView.
+     *
+     * m_memory stays empty; the caller (e.g. TransformerWeights) retains ownership.
+     * The source TensorView must outlive this Tensor.
+     *
+     * @param view the TensorView to borrow from
+     */
+    Tensor(TensorView<T> view) : TensorView<T>(view), m_memory({}) {}
+
+    /**
+     * @brief Borrow from a TensorView without copying data or touching m_memory.
+     *
+     * Only updates the shape and data pointer; ownership stays with the source.
+     * The source TensorView must outlive this Tensor.
+     *
+     * @param view the TensorView to borrow from
+     */
+    Tensor &operator=(TensorView<T> view) {
+        this->setShape(view.shape());
+        this->setData(view.data());
+        return *this;
+    }
     /**
      * @brief Copy construct a Tensor, deep-copying the data.
      *
