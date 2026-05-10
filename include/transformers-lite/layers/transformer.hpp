@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../core/exprs.hpp"
 #include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
@@ -34,30 +35,23 @@ struct TransformerConfig {
  * @tparam T datatype
  */
 template <template <class> class COMPUTE, class T> struct TransformerWeights {
-    // token embedding table
     Tensor<COMPUTE, T> token_embedding_table; // (vocab_size, dim)
-    // weights for rmsnorms
-    Tensor<COMPUTE, T> rms_att_weight; // (layer, dim) rmsnorm weights
-    Tensor<COMPUTE, T> rms_ffn_weight; // (layer, dim)
-    // weights for matmuls. note dim == n_heads * head_size
-    Tensor<COMPUTE, T> wq; // (layer, dim, n_heads * head_size)
-    Tensor<COMPUTE, T> wk; // (layer, dim, n_kv_heads * head_size)
-    Tensor<COMPUTE, T> wv; // (layer, dim, n_kv_heads * head_size)
-    Tensor<COMPUTE, T> wo; // (layer, n_heads * head_size, dim)
-    // weights for ffn
-    Tensor<COMPUTE, T> w1; // (layer, hidden_dim, dim)
-    Tensor<COMPUTE, T> w2; // (layer, dim, hidden_dim)
-    Tensor<COMPUTE, T> w3; // (layer, hidden_dim, dim)
-    // final rmsnorm
-    Tensor<COMPUTE, T> rms_final_weight; // (dim,)
-    // (optional) classifier weights for the logits, on the last layer
-    Tensor<COMPUTE, T> wcls; // (vocab_size, dim)
+    Tensor<COMPUTE, T> rms_att_weight;        // (layer, dim)
+    Tensor<COMPUTE, T> rms_ffn_weight;        // (layer, dim)
+    Tensor<COMPUTE, T> wq;                    // (layer, dim, n_heads * head_size)
+    Tensor<COMPUTE, T> wk;                    // (layer, dim, n_kv_heads * head_size)
+    Tensor<COMPUTE, T> wv;                    // (layer, dim, n_kv_heads * head_size)
+    Tensor<COMPUTE, T> wo;                    // (layer, n_heads * head_size, dim)
+    Tensor<COMPUTE, T> w1;                    // (layer, hidden_dim, dim)
+    Tensor<COMPUTE, T> w2;                    // (layer, dim, hidden_dim)
+    Tensor<COMPUTE, T> w3;                    // (layer, hidden_dim, dim)
+    Tensor<COMPUTE, T> rms_final_weight;      // (dim,)
+    Tensor<COMPUTE, T> wcls;                  // (vocab_size, dim)
 
     /**
      * @brief Return all weight tensors as a flat state dict with PyTorch-style keys.
      *
-     * Per-layer weights are pre-sliced: e.g. "layers.0.attention.wq.weight" is
-     * already a view into layer 0's wq slice. All views point into this object,
+     * Per-layer weights are pre-sliced. All views point into this object,
      * which must outlive the returned map.
      *
      * @param n_layers number of transformer layers
@@ -100,8 +94,6 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     /**
      * @brief Construct a TransformerBlock, creating Attention and FeedForward sub-layers.
      *
-     * Call initializeLayer to bind weights before calling forward.
-     *
      * @param kv_dim    key/value cache dimension per position
      * @param dim       transformer model dimension
      * @param n_heads   number of query heads
@@ -116,10 +108,6 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     /**
      * @brief Bind all weights from the per-layer state dict.
      *
-     * Expected keys follow the PyTorch naming after the "layers.N." prefix is stripped:
-     *   "attention.wo.weight", "attention_norm.weight", "ffn_norm.weight",
-     *   "attention.{wq,wk,wv}.weight", "feedforward.{w1,w2,w3}.weight"
-     *
      * @param sd per-layer StateDict (pre-sliced for this layer)
      */
     void initializeLayer(const StateDict<value_type> &sd) {
@@ -133,43 +121,36 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     /**
      * @brief Forward pass through the transformer block.
      *
-     * Applies attention with RMS normalization, residual connection, then FFN
-     * with RMS normalization and a second residual connection.
+     * x is never modified. m_x is allocated on the first call and reused after.
      *
-     * @param x input/output tensor (dim), modified in-place
+     * @param x input tensor (dim,)
      * @param pos_ current sequence position
+     * @return reference to the layer-owned residual output buffer (dim,)
      */
-    void forward(Tensor<COMPUTE, value_type> &x, int pos_) {
-        // attention rmsnorm
-        rmsnorm(m_xh, x, m_w_rms_att);
+    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &x, int pos_) {
+        // attention branch
+        m_xh = rmsnorm(x, m_w_rms_att);
+        auto &attn = m_attention->forward(m_xh, pos_);
+        m_xh2 = matmul(attn, m_wo);
+        m_x = add(x, m_xh2); // first residual; m_x allocated on first call
 
-        // forward attention
-        m_attention->forward(m_xh, m_xh, pos_);
+        // FFN branch
+        m_xh = rmsnorm(m_x, m_w_rms_ffn);
+        auto &ffn = m_feedforward->forward(m_xh);
+        m_x = add(m_x, ffn); // second residual; safe: element-wise self-assign
 
-        // final matmul to get the output of the attention
-        matmul(m_xh2, m_xh, m_wo);
-
-        // residual connection back into x
-        add(x, x, m_xh2);
-
-        // ffn rmsnorm
-        rmsnorm(m_xh, x, m_w_rms_ffn);
-
-        // forward FFN
-        m_feedforward->forward(m_xh, m_xh);
-
-        // residual connection
-        add(x, x, m_xh);
+        return m_x;
     }
 
  private:
     typename Attention<COMPUTE, value_type>::ptr m_attention;
     typename FeedForward<COMPUTE, value_type>::ptr m_feedforward;
-    Tensor<COMPUTE, value_type> m_xh;        // pre-branch buffer (dim)
-    Tensor<COMPUTE, value_type> m_xh2;       // post-attention buffer (dim)
-    Tensor<COMPUTE, value_type> m_wo;        // output projection (n_heads * head_size, dim)
-    Tensor<COMPUTE, value_type> m_w_rms_att; // attention RMSNorm weights (dim)
-    Tensor<COMPUTE, value_type> m_w_rms_ffn; // FFN RMSNorm weights (dim)
+    Tensor<COMPUTE, value_type> m_xh;        // (dim,) — pre-allocated
+    Tensor<COMPUTE, value_type> m_xh2;       // (dim,) — pre-allocated
+    Tensor<COMPUTE, value_type> m_x;         // (dim,) — lazy allocated on first forward call
+    Tensor<COMPUTE, value_type> m_wo;        // (n_heads * head_size, dim)
+    Tensor<COMPUTE, value_type> m_w_rms_att; // (dim,)
+    Tensor<COMPUTE, value_type> m_w_rms_ffn; // (dim,)
 };
 
 /**
@@ -186,8 +167,6 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
     /**
      * @brief Construct from a flat PyTorch-style state dict.
-     *
-     * All TensorViews in the dict must outlive this Transformer.
      *
      * @param config transformer hyperparameters
      * @param state_dict flat map of weight name → tensor view
@@ -206,12 +185,6 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
     /**
      * @brief Build layers from a flat state dict.
-     *
-     * Expected keys follow the PyTorch naming convention:
-     *   "token_embedding_table.weight", "rms_final.weight", "output.weight",
-     *   "layers.{i}.attention.{wq,wk,wv,wo}.weight",
-     *   "layers.{i}.{attention,ffn}_norm.weight",
-     *   "layers.{i}.feedforward.{w1,w2,w3}.weight"
      *
      * @param state_dict flat map of weight name → tensor view
      */
@@ -234,8 +207,9 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
         m_linear = std::make_unique<Linear<COMPUTE, value_type>>();
         m_linear->initializeLayer(state_dict.getLayerWeights("output"));
-        m_out_logits.reShape(Shape(m_linear->outDim()));
-        m_x_in.reShape(Shape(dim));
+
+        m_x_in.reShape(Shape(dim));   // working buffer for token embedding copy
+        m_x_norm.reShape(Shape(dim)); // output buffer for final RMSNorm
     }
 
     ~Transformer() = default;
@@ -243,21 +217,24 @@ template <template <class> class COMPUTE, class T> class Transformer {
     /**
      * @brief Run the full transformer forward pass for one token.
      *
-     * @param token input token index (used to look up embedding)
-     * @param pos current sequence position
-     * @param logits output CPU tensor filled with logits over the vocabulary
+     * No heap allocation after the first call. Returns a reference to the linear
+     * layer's output buffer; valid until the next forward() call.
+     *
+     * @param token input token index
+     * @param pos   current sequence position
+     * @return reference to the logit tensor (vocab_size,)
      */
-    void forward(int token, int pos, Tensor<CPU, value_type> &logits) {
-        TensorView<value_type> content_row = m_token_embedding.slice(token);
-        m_x_in.copyFrom(content_row);
+    Tensor<COMPUTE, value_type> &forward(int token, int pos) {
+        // Copy embedding row into a Tensor so downstream blocks have COMPUTE info.
+        m_x_in.copyFrom(m_token_embedding.slice(token));
 
-        for (auto &layer : m_layers) {
-            layer->forward(m_x_in, pos);
-        }
+        // Each block reads its input and returns a ref to its own output buffer.
+        Tensor<COMPUTE, value_type> *x = &m_x_in;
+        for (auto &layer : m_layers)
+            x = &layer->forward(*x, pos);
 
-        rmsnorm(m_x_in, m_x_in, m_rms_final);
-        m_linear->forward(m_x_in, m_out_logits);
-        logits.copyFrom(m_out_logits);
+        m_x_norm = rmsnorm(*x, m_rms_final);
+        return m_linear->forward(m_x_norm);
     }
 
     /** @brief Get the transformer configuration. */
@@ -268,8 +245,8 @@ template <template <class> class COMPUTE, class T> class Transformer {
     Tensor<COMPUTE, value_type> m_token_embedding; // borrows from embedding table
     Tensor<COMPUTE, value_type> m_rms_final;       // borrows from final RMSNorm weights
     typename Linear<COMPUTE, value_type>::ptr m_linear;
-    Tensor<COMPUTE, value_type> m_x_in;
-    Tensor<COMPUTE, value_type> m_out_logits;
+    Tensor<COMPUTE, value_type> m_x_in;   // (dim,) — token embedding working copy
+    Tensor<COMPUTE, value_type> m_x_norm; // (dim,) — final RMSNorm output
     std::vector<typename TransformerBlock<COMPUTE, value_type>::ptr> m_layers;
 };
 

@@ -206,7 +206,7 @@ class Memory {
      * @param data source pointer
      * @param num_elements number of elements to copy
      */
-    auto copyFrom(pointer data, size_t num_elements) { COMPUTE<T>::copy(data, m_data, num_elements); }
+    auto copyFrom(const_pointer data, size_t num_elements) { COMPUTE<T>::copy(data, m_data, num_elements); }
 
     /**
      * @brief Copy data from another Memory buffer into this buffer.

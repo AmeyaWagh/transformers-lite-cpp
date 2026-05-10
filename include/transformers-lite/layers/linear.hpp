@@ -2,7 +2,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "../core/ops.hpp"
+#include "../core/exprs.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "layer.hpp"
@@ -29,25 +29,31 @@ template <template <class> class COMPUTE, class T> class Linear : public LayerBa
     /**
      * @brief Bind weight views from a state dict.
      *
-     * Expected keys: "wcls".
+     * Expected keys: "weight".
      *
-     * @param state_dict map of weight name to tensor view
+     * @param sd map of weight name to tensor view
      */
     void initializeLayer(const StateDict<value_type> &sd) { m_wcls = sd.at("weight"); }
 
     /**
      * @brief Forward pass: out = wcls * x.
      *
-     * @param x   input tensor (in_dim)
-     * @param out output tensor (out_dim)
+     * Allocates the output buffer on the first call; subsequent calls reuse it.
+     *
+     * @param x input tensor (in_dim,)
+     * @return reference to the layer-owned output buffer (out_dim,)
      */
-    void forward(const Tensor<COMPUTE, value_type> &x, Tensor<COMPUTE, value_type> &out) { matmul(out, x, m_wcls); }
+    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &x) {
+        m_out = matmul(x, m_wcls);
+        return m_out;
+    }
 
     /** @brief Output dimension (number of rows in the weight matrix). */
     auto outDim() const -> size_t { return m_wcls.shape().shapeVec()[0]; }
 
  private:
     Tensor<COMPUTE, value_type> m_wcls; // (out_dim, in_dim)
+    Tensor<COMPUTE, value_type> m_out;  // (out_dim,) — allocated on first forward call
 };
 
 } // namespace transformers_lite

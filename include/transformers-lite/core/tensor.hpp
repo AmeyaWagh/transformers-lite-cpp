@@ -500,6 +500,27 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
         this->setData(view.data());
         return *this;
     }
+
+    /**
+     * @brief Evaluate a lazy expression into this tensor.
+     *
+     * Allocates (or re-allocates) only when the output shape changes; subsequent
+     * calls with the same shape are allocation-free — just computation.
+     * COMPUTE is checked at the call site via the requires clause, so the
+     * right backend kernel is always selected.
+     *
+     * @param expr expression with output_shape() and eval_into(Tensor<COMPUTE,T>&)
+     */
+    template <typename E> Tensor &operator=(const E &expr) requires requires(const E &e, Tensor<COMPUTE, T> &out) {
+        { e.output_shape() } -> std::convertible_to<Shape>;
+        { e.eval_into(out) } -> std::same_as<void>;
+    }
+    {
+        if (this->shape() != expr.output_shape())
+            reShape(expr.output_shape());
+        expr.eval_into(*this);
+        return *this;
+    }
     /**
      * @brief Copy construct a Tensor, deep-copying the data.
      *
@@ -567,7 +588,7 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
      *
      * @param tensor source tensor view
      */
-    void copyFrom(TensorView<value_type> &tensor) {
+    void copyFrom(const TensorView<value_type> &tensor) {
         m_memory.copyFrom(tensor.data(), tensor.size());
         this->setShape(tensor.shape());
     }

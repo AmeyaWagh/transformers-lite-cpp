@@ -2,6 +2,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "../core/exprs.hpp"
 #include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
@@ -36,9 +37,9 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
     /**
      * @brief Bind weight views from a state dict.
      *
-     * Expected keys: "w1", "w2", "w3".
+     * Expected keys: "w1.weight", "w2.weight", "w3.weight".
      *
-     * @param state_dict map of weight name to tensor view
+     * @param sd map of weight name to tensor view
      */
     void initializeLayer(const StateDict<value_type> &sd) {
         m_w1 = sd.at("w1.weight");
@@ -49,28 +50,29 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
     /**
      * @brief Forward pass: out = w2(silu(w1(x)) * w3(x))
      *
-     * @param in input tensor (dim)
-     * @param out output tensor (dim)
+     * Allocates the output buffer on the first call; subsequent calls reuse it.
+     *
+     * @param in input tensor (dim,)
+     * @return reference to the layer-owned output buffer (dim,)
      */
-    void forward(Tensor<COMPUTE, value_type> &in, Tensor<COMPUTE, value_type> &out) {
-        matmul(m_hb, in, m_w1);
-        matmul(m_hb2, in, m_w3);
-
-        // SwiGLU non-linearity
+    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &in) {
+        m_hb = matmul(in, m_w1);
+        m_hb2 = matmul(in, m_w3);
         silu_inpl(m_hb);
-        hadamard_prod(m_hb, m_hb, m_hb2);
-
-        matmul(out, m_hb, m_w2);
+        m_hb = hadamard(m_hb, m_hb2); // safe: element-wise, no cross-index aliasing
+        m_out = matmul(m_hb, m_w2);
+        return m_out;
     }
 
  private:
-    size_t m_dim;                      // transformer dimension
-    size_t m_hidden_dim;               // hidden layer dimension
+    size_t m_dim;
+    size_t m_hidden_dim;
     Tensor<COMPUTE, value_type> m_w1;  // (hidden_dim, dim)
     Tensor<COMPUTE, value_type> m_w2;  // (dim, hidden_dim)
     Tensor<COMPUTE, value_type> m_w3;  // (hidden_dim, dim)
-    Tensor<COMPUTE, value_type> m_hb;  // hidden buffer (hidden_dim,)
-    Tensor<COMPUTE, value_type> m_hb2; // gate buffer (hidden_dim,)
+    Tensor<COMPUTE, value_type> m_hb;  // (hidden_dim,) — pre-allocated at construction
+    Tensor<COMPUTE, value_type> m_hb2; // (hidden_dim,) — pre-allocated at construction
+    Tensor<COMPUTE, value_type> m_out; // (dim,)        — allocated on first forward call
 };
 
 } // namespace transformers_lite

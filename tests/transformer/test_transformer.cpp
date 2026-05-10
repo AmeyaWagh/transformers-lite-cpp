@@ -22,8 +22,6 @@ class TransformerFixture : public ::testing::Test {
     TransformerConfig config{};
     TransformerWeights<CPU, float> weights;
 
-    // Load shape floats directly into an existing tensor member.
-    // Uses reShape (which reallocates) then fread into the raw buffer.
     static void load(std::FILE *f, Tensor<CPU, float> &t, Shape shape) {
         t.reShape(shape);
         std::fread(t.data(), sizeof(float), t.size(), f);
@@ -50,17 +48,15 @@ class TransformerFixture : public ::testing::Test {
         const size_t Nh = static_cast<size_t>(config.n_heads);
         const size_t Nk = static_cast<size_t>(config.n_kv_heads);
         const size_t V = static_cast<size_t>(config.vocab_size);
-        const size_t hs = D / Nh;      // head_size
-        const size_t kv = D * Nk / Nh; // kv_dim
-        (void)kv;
+        const size_t hs = D / Nh;
+        (void)hs;
 
-        // Must match TransformerWeights declaration order and gen_weights.py
         load(f, weights.token_embedding_table, Shape(V, D));
         load(f, weights.rms_att_weight, Shape(L, D));
         load(f, weights.rms_ffn_weight, Shape(L, D));
-        load(f, weights.wq, Shape(L, Nh * hs, D));
-        load(f, weights.wk, Shape(L, Nk * hs, D));
-        load(f, weights.wv, Shape(L, Nk * hs, D));
+        load(f, weights.wq, Shape(L, Nh * (D / Nh), D));
+        load(f, weights.wk, Shape(L, Nk * (D / Nh), D));
+        load(f, weights.wv, Shape(L, Nk * (D / Nh), D));
         load(f, weights.wo, Shape(L, D, D));
         load(f, weights.w1, Shape(L, H, D));
         load(f, weights.w2, Shape(L, D, H));
@@ -83,10 +79,7 @@ TEST_F(TransformerFixture, MatchesPythonReference) {
     std::fread(&n_cases, sizeof(int), 1, f);
     ASSERT_GT(n_cases, 0);
 
-    // Single model instance: KV caches accumulate across sequential calls,
-    // mirroring the Python script which shares cache arrays between test cases.
     Transformer<CPU, float> model(config, weights);
-    Tensor<CPU, float> logits(Shape(static_cast<size_t>(config.vocab_size)));
 
     for (int c = 0; c < n_cases; ++c) {
         int token = 0, pos = 0;
@@ -96,7 +89,7 @@ TEST_F(TransformerFixture, MatchesPythonReference) {
         std::vector<float> expected(static_cast<size_t>(config.vocab_size));
         std::fread(expected.data(), sizeof(float), expected.size(), f);
 
-        model.forward(token, pos, logits);
+        auto &logits = model.forward(token, pos);
 
         for (int i = 0; i < config.vocab_size; ++i) {
             EXPECT_NEAR(logits.data()[i], expected[i], 1e-4f) << "case=" << c << " token=" << token << " pos=" << pos << " vocab_idx=" << i;
