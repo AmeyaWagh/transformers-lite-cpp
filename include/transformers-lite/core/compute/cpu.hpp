@@ -7,12 +7,22 @@
 
 namespace transformers_lite {
 
+/** @brief CPU SIMD accelerators, auto-detected at compile time. */
+enum class CPUAccelerator { NONE, AVX512 };
+
+#if defined(__AVX512F__)
+inline constexpr CPUAccelerator kCPUAccelerator = CPUAccelerator::AVX512;
+#else
+inline constexpr CPUAccelerator kCPUAccelerator = CPUAccelerator::NONE;
+#endif
+
 /**
  * @brief CPU compute backend providing host-side memory operations.
  *
  * @tparam T element data type
  */
 template <class T> struct CPU : public XPU {
+    static constexpr CPUAccelerator accelerator = kCPUAccelerator;
     using allocator_type = std::allocator<T>;
 
     /**

@@ -94,8 +94,11 @@ void matmulCPU(float *xout, const float *x, const float *w, int n, int d) {
  * @param w weight matrix (mxn)
  */
 template <typename T> void matmul(TensorView<T> &xout, const TensorView<T> &xin, const TensorView<T> &w) {
-    // TODO compute based matmul
-    matmulCPU(xout.data(), xin.data(), w.data(), xin.size(), xout.size());
+    if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+        matmulAVX512(xout.data(), xin.data(), w.data(), xin.size(), xout.size());
+    } else {
+        matmulCPU(xout.data(), xin.data(), w.data(), xin.size(), xout.size());
+    }
 }
 
 /**
