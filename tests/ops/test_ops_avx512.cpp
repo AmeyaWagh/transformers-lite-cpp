@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <transformers-lite/core/exprs.hpp>
 #include <transformers-lite/core/ops.hpp>
 #include <transformers-lite/core/tensor.hpp>
 

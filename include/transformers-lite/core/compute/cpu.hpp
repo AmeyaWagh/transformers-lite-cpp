@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <type_traits>
 
+#include "avx512.hpp"
 #include "xpu.hpp"
 
 namespace transformers_lite {
@@ -51,6 +53,53 @@ template <class T> struct CPU : public XPU {
      * @return T& reference to the element
      */
     static auto get(T *data, size_t index) -> T & { return *(data + index); }
+
+    static void add(T *out, const T *a, const T *b, size_t n) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
+            addAVX512(out, a, b, n);
+        else
+            for (size_t i = 0; i < n; ++i)
+                out[i] = a[i] + b[i];
+    }
+
+    static void sub(T *out, const T *a, const T *b, size_t n) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
+            subAVX512(out, a, b, n);
+        else
+            for (size_t i = 0; i < n; ++i)
+                out[i] = a[i] - b[i];
+    }
+
+    static void mul(T *out, const T *a, const T *b, size_t n) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
+            mulAVX512(out, a, b, n);
+        else
+            for (size_t i = 0; i < n; ++i)
+                out[i] = a[i] * b[i];
+    }
+
+    static void div(T *out, const T *a, const T *b, size_t n) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
+            divAVX512(out, a, b, n);
+        else
+            for (size_t i = 0; i < n; ++i)
+                out[i] = a[i] / b[i];
+    }
+
+    static void matmul(T *out, const T *x, const T *w, int n, int d) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            matmulAVX512(out, x, w, n, d);
+        } else {
+            int i;
+#pragma omp parallel for private(i)
+            for (i = 0; i < d; i++) {
+                T val = T(0);
+                for (int j = 0; j < n; j++)
+                    val += w[i * n + j] * x[j];
+                out[i] = val;
+            }
+        }
+    }
 };
 
 } // namespace transformers_lite

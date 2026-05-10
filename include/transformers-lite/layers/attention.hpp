@@ -1,13 +1,8 @@
 #pragma once
 #include <cmath>
-#include <string>
-#include <unordered_map>
 
-#include "../core/exprs.hpp"
-#include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
-#include "../core/types.hpp"
 #include "layer.hpp"
 
 namespace transformers_lite {

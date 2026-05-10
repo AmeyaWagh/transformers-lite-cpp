@@ -1,9 +1,7 @@
 #pragma once
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-#include "../core/exprs.hpp"
 #include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
@@ -131,12 +129,12 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
         m_xh = rmsnorm(x, m_w_rms_att);
         auto &attn = m_attention.forward(m_xh, pos_);
         m_xh2 = matmul(attn, m_wo);
-        m_x = add(x, m_xh2); // first residual; m_x allocated on first call
+        m_x = x + m_xh2;
 
         // FFN branch
         m_xh = rmsnorm(m_x, m_w_rms_ffn);
         auto &ffn = m_feedforward.forward(m_xh);
-        m_x = add(m_x, ffn); // second residual; safe: element-wise self-assign
+        m_x = m_x + ffn;
 
         return m_x;
     }

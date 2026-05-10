@@ -1,9 +1,5 @@
 #pragma once
-#include <string>
-#include <unordered_map>
 
-#include "../core/exprs.hpp"
-#include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "layer.hpp"
@@ -66,7 +62,7 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
         silu_inpl(m_hb);
 
         // Element-wise Hadamard product: m_hb = m_hb * m_hb2
-        m_hb = hadamard(m_hb, m_hb2); // safe: element-wise, no cross-index aliasing
+        m_hb = m_hb * m_hb2;
         m_out = matmul(m_hb, m_w2);
         return m_out;
     }

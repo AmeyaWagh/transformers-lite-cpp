@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <transformers-lite/core/exprs.hpp>
 #include <transformers-lite/core/ops.hpp>
 #include <transformers-lite/core/tensor.hpp>
 
@@ -165,14 +164,11 @@ TEST(AddCPU, ElementWise) {
     auto b = makeTensor({4.f, 5.f, 6.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    add(rv, av, bv);
+    result = a + b;
 
-    EXPECT_FLOAT_EQ(rv(0), 5.f);
-    EXPECT_FLOAT_EQ(rv(1), 7.f);
-    EXPECT_FLOAT_EQ(rv(2), 9.f);
+    EXPECT_FLOAT_EQ(result(0), 5.f);
+    EXPECT_FLOAT_EQ(result(1), 7.f);
+    EXPECT_FLOAT_EQ(result(2), 9.f);
 }
 
 TEST(AddCPU, ZeroTensor) {
@@ -180,14 +176,11 @@ TEST(AddCPU, ZeroTensor) {
     auto b = makeTensor({0.f, 0.f, 0.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    add(rv, av, bv);
+    result = a + b;
 
-    EXPECT_FLOAT_EQ(rv(0), 1.f);
-    EXPECT_FLOAT_EQ(rv(1), 2.f);
-    EXPECT_FLOAT_EQ(rv(2), 3.f);
+    EXPECT_FLOAT_EQ(result(0), 1.f);
+    EXPECT_FLOAT_EQ(result(1), 2.f);
+    EXPECT_FLOAT_EQ(result(2), 3.f);
 }
 
 // ── hadamard_prod ─────────────────────────────────────────────────────────────
@@ -197,14 +190,11 @@ TEST(HadamardProdCPU, ElementWise) {
     auto b = makeTensor({4.f, 5.f, 6.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    hadamard_prod(rv, av, bv);
+    result = a * b;
 
-    EXPECT_FLOAT_EQ(rv(0), 4.f);
-    EXPECT_FLOAT_EQ(rv(1), 10.f);
-    EXPECT_FLOAT_EQ(rv(2), 18.f);
+    EXPECT_FLOAT_EQ(result(0), 4.f);
+    EXPECT_FLOAT_EQ(result(1), 10.f);
+    EXPECT_FLOAT_EQ(result(2), 18.f);
 }
 
 TEST(HadamardProdCPU, WithZero) {
@@ -212,14 +202,11 @@ TEST(HadamardProdCPU, WithZero) {
     auto b = makeTensor({0.f, 0.f, 0.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    hadamard_prod(rv, av, bv);
+    result = a * b;
 
-    EXPECT_FLOAT_EQ(rv(0), 0.f);
-    EXPECT_FLOAT_EQ(rv(1), 0.f);
-    EXPECT_FLOAT_EQ(rv(2), 0.f);
+    EXPECT_FLOAT_EQ(result(0), 0.f);
+    EXPECT_FLOAT_EQ(result(1), 0.f);
+    EXPECT_FLOAT_EQ(result(2), 0.f);
 }
 
 // ── dot_prod ──────────────────────────────────────────────────────────────────
