@@ -69,7 +69,7 @@ class Shape {
      * @param args tensor indices
      * @return const size_t - offset of the element in the memory.
      */
-    template <typename... ARGS> auto operator()(size_t idx, ARGS... args) const -> const size_t {
+    template <typename... ARGS> [[nodiscard]] auto operator()(size_t idx, ARGS... args) const -> const size_t {
         assert(sizeof...(args) < m_shape.size());
         assert(idx < m_shape[(m_num_dims - 1 - sizeof...(ARGS))]);
         return idx * m_stride[(m_num_dims - 1 - sizeof...(ARGS))] + this->operator()(args...);
@@ -81,7 +81,7 @@ class Shape {
      * @param idx tensor index
      * @return const size_t - offset of the element in the memory.
      */
-    auto operator()(size_t idx) const -> const size_t {
+    [[nodiscard]] auto operator()(size_t idx) const -> const size_t {
         if (isScalar()) {
             assert(idx == 0);
             return 0;
@@ -96,7 +96,7 @@ class Shape {
      * @param idx dimension index
      * @return const size_t - shape of the given dimension.
      */
-    auto operator[](size_t idx) const -> const size_t { return m_shape.at(idx); }
+    [[nodiscard]] auto operator[](size_t idx) const -> const size_t { return m_shape.at(idx); }
 
     /**
      * @brief Get slice of multidimensional shape
@@ -106,7 +106,7 @@ class Shape {
      * @param args other indices of the shape dimension.
      * @return Shape sliced shape Shape[nDIM - 1 + sizeof...(args)]
      */
-    template <typename... ARGS> auto slice(size_t idx, ARGS... args) const -> Shape {
+    template <typename... ARGS> [[nodiscard]] auto slice(size_t idx, ARGS... args) const -> Shape {
         /**
          * Let Original shape of a tensor be Shape(2,3,5) stride = {15,5,1} nDIM=3 and names = (C,H,W)
          *
@@ -141,7 +141,7 @@ class Shape {
      * @param args other indices of the shape dimension.
      * @return size_t - offset value from the beginning of the original tensor.
      */
-    template <typename... ARGS> auto offset(size_t idx, ARGS... args) const -> size_t {
+    template <typename... ARGS> [[nodiscard]] auto offset(size_t idx, ARGS... args) const -> size_t {
         /**
          * Lets take the same example
          * Let Original shape of a tensor be Shape(2,3,5) stride = {15,5,1} nDIM=3
@@ -173,7 +173,7 @@ class Shape {
      *
      * @return size_t total element count
      */
-    auto size() const -> const size_t {
+    [[nodiscard]] auto size() const -> const size_t {
         if (m_shape.empty()) {
             return 0;
         }
@@ -216,7 +216,7 @@ class Shape {
      * @param other shape to compare against
      * @return true if both shapes have the same dimensions and sizes
      */
-    bool operator==(Shape const &other) const {
+    [[nodiscard]] bool operator==(Shape const &other) const {
         bool check = true;
         check &= other.numDims() == this->numDims();
         check &= other.isScalar() == this->isScalar();
@@ -393,7 +393,7 @@ template <class T> class TensorView {
      * @param args remaining dimension indices
      * @return TensorView<T> a view into the sliced region
      */
-    template <typename... ARGS> auto slice(size_t idx, ARGS... args) -> TensorView<T> {
+    template <typename... ARGS> [[nodiscard]] auto slice(size_t idx, ARGS... args) -> TensorView<T> {
         pointer begin = data();
         size_t offset = m_shape.offset(idx, args...);
         Shape new_shape = m_shape.slice(idx, args...);
@@ -412,7 +412,7 @@ template <class T> class TensorView {
      * @param shape new shape (must have the same number of elements)
      * @return TensorView<T> reshaped view
      */
-    auto view(const Shape &shape) {
+    [[nodiscard]] auto view(const Shape &shape) {
         assert(m_shape.numElements() == shape.numElements());
         return TensorView(this->data(), shape);
     }
@@ -431,10 +431,10 @@ template <class T> class TensorView {
     auto setShape(const Shape &shape) { m_shape = shape; }
 
     /** @brief Get a const pointer to the underlying data. */
-    auto data() const -> const_pointer { return m_data; }
+    [[nodiscard]] auto data() const -> const_pointer { return m_data; }
 
     /** @brief Get a mutable pointer to the underlying data. */
-    auto data() -> pointer { return m_data; }
+    [[nodiscard]] auto data() -> pointer { return m_data; }
 
     /**
      * @brief Set the underlying data pointer.
@@ -509,17 +509,17 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
      * COMPUTE is checked at the call site via the requires clause, so the
      * right backend kernel is always selected.
      *
-     * @param expr expression with output_shape() and eval_into(Tensor<COMPUTE,T>&)
+     * @param expr expression with outputShape() and evalInto(Tensor<COMPUTE,T>&)
      */
     template <typename E> Tensor &operator=(const E &expr) requires requires(const E &e, Tensor<COMPUTE, T> &out) {
-        { e.output_shape() } -> std::convertible_to<Shape>;
-        { e.eval_into(out) } -> std::same_as<void>;
+        { e.outputShape() } -> std::convertible_to<Shape>;
+        { e.evalInto(out) } -> std::same_as<void>;
     }
     {
-        if (this->shape() != expr.output_shape()) {
-            reShape(expr.output_shape());
+        if (this->shape() != expr.outputShape()) {
+            reShape(expr.outputShape());
         }
-        expr.eval_into(*this);
+        expr.evalInto(*this);
         return *this;
     }
     /**

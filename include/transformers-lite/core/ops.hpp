@@ -144,7 +144,7 @@ template <typename T> void hadamard_prod(TensorView<T> &result, TensorView<T> &a
  * @param b second input tensor view
  * @return T scalar dot product result
  */
-template <typename T> T dot_prod(TensorView<T> &a, TensorView<T> &b) {
+template <typename T> [[nodiscard]] T dot_prod(TensorView<T> &a, TensorView<T> &b) {
     assert(a.size() == b.size());
     T value = 0;
     for (size_t i = 0; i < a.size(); ++i) {
@@ -194,7 +194,7 @@ template <typename T> void softmax(TensorView<T> &x, int n = -1) {
  * @param x input tensor view
  * @return size_t index of the element with the highest value
  */
-template <typename T> size_t argmax(TensorView<T> &x) {
+template <typename T> [[nodiscard]] size_t argmax(TensorView<T> &x) {
     // return the index that has the highest probability
     size_t max_idx = 0;
     T max_val = x[0];
