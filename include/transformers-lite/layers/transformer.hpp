@@ -189,12 +189,12 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @param state_dict flat map of weight name → tensor view
      */
     void initializeLayers(const StateDict<value_type> &state_dict) {
-        const size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
-        const size_t dim = static_cast<size_t>(m_config.dim);
-        const size_t n_heads = static_cast<size_t>(m_config.n_heads);
-        const size_t hidden_dim = static_cast<size_t>(m_config.hidden_dim);
-        const size_t n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
-        const size_t seq_len = static_cast<size_t>(m_config.seq_len);
+        auto kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
+        auto dim = static_cast<size_t>(m_config.dim);
+        auto n_heads = static_cast<size_t>(m_config.n_heads);
+        auto hidden_dim = static_cast<size_t>(m_config.hidden_dim);
+        auto n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
+        auto seq_len = static_cast<size_t>(m_config.seq_len);
 
         m_token_embedding = state_dict.at("token_embedding_table.weight");
         m_rms_final = state_dict.at("rms_final.weight");
@@ -238,7 +238,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
     }
 
     /** @brief Get the transformer configuration. */
-    auto getConfig() const -> const TransformerConfig & { return m_config; }
+    [[nodiscard]] auto getConfig() const -> const TransformerConfig & { return m_config; }
 
  private:
     TransformerConfig m_config;

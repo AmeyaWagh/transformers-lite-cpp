@@ -49,7 +49,7 @@ template <template <class> class COMPUTE, class T> class Linear : public LayerBa
     }
 
     /** @brief Output dimension (number of rows in the weight matrix). */
-    auto outDim() const -> size_t { return m_wcls.shape().shapeVec()[0]; }
+    [[nodiscard]] auto outDim() const -> size_t { return m_wcls.shape().shapeVec()[0]; }
 
  private:
     Tensor<COMPUTE, value_type> m_wcls; // (out_dim, in_dim)

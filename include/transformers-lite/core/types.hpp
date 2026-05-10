@@ -1,5 +1,4 @@
 #pragma once
-#include <string>
 
 namespace transformers_lite {
 using float32_t = float;  ///< 32-bit floating point type alias

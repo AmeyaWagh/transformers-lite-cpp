@@ -185,14 +185,14 @@ class Shape {
      *
      * @return size_t dimension count
      */
-    auto numDims() const -> const size_t { return m_num_dims; }
+    [[nodiscard]] auto numDims() const -> const size_t { return m_num_dims; }
 
     /**
      * @brief Total number of elements (same as size, but returns 1 for scalars).
      *
      * @return size_t element count
      */
-    auto numElements() const -> const size_t {
+    [[nodiscard]] auto numElements() const -> const size_t {
         if (isScalar()) {
             return 1UL;
         }
@@ -202,13 +202,13 @@ class Shape {
     }
 
     /** @brief Get the dimension sizes as a vector. */
-    auto shapeVec() const -> const std::vector<size_t> { return m_shape; }
+    [[nodiscard]] auto shapeVec() const -> const std::vector<size_t> { return m_shape; }
 
     /** @brief Get the stride values as a vector. */
-    auto strideVec() const -> const std::vector<size_t> { return m_stride; }
+    [[nodiscard]] auto strideVec() const -> const std::vector<size_t> { return m_stride; }
 
     /** @brief Get the dimension names as a vector. */
-    auto getNamesVec() const -> const std::vector<std::string> { return m_dim_names; }
+    [[nodiscard]] auto getNamesVec() const -> const std::vector<std::string> { return m_dim_names; }
 
     /**
      * @brief Equality comparison between two shapes.
@@ -230,10 +230,10 @@ class Shape {
     };
 
     /** @brief Check if the tensor memory layout is contiguous. Always true for now. */
-    bool isContiguous() const { return true; }
+    [[nodiscard]] bool isContiguous() const { return true; }
 
     /** @brief Check if this shape represents a scalar (0 dimensions). */
-    bool isScalar() const { return m_num_dims == 0; }
+    [[nodiscard]] bool isScalar() const { return m_num_dims == 0; }
 
  private:
     /**
@@ -418,10 +418,10 @@ template <class T> class TensorView {
     }
 
     /** @brief Get the shape of this tensor view. */
-    auto shape() const -> const Shape & { return m_shape; }
+    [[nodiscard]] auto shape() const -> const Shape & { return m_shape; }
 
     /** @brief Get the total number of elements. */
-    auto size() const -> const size_t { return m_shape.size(); }
+    [[nodiscard]] auto size() const -> const size_t { return m_shape.size(); }
 
     /**
      * @brief Set a new shape for this view.
@@ -444,13 +444,13 @@ template <class T> class TensorView {
     auto setData(pointer p) { m_data = p; }
 
     /** @brief Get the total number of elements. */
-    auto numElements() const -> const size_t { return m_shape.numElements(); }
+    [[nodiscard]] auto numElements() const -> const size_t { return m_shape.numElements(); }
 
     /** @brief Get the total size in bytes. */
-    auto numBytes() const -> const size_t { return numElements() * sizeof(value_type); }
+    [[nodiscard]] auto numBytes() const -> const size_t { return numElements() * sizeof(value_type); }
 
     /** @brief Check if the tensor memory layout is contiguous. */
-    auto isContiguous() -> bool { return m_shape.isContiguous(); }
+    [[nodiscard]] auto isContiguous() -> bool { return m_shape.isContiguous(); }
 
  private:
     pointer m_data;
@@ -516,8 +516,9 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
         { e.eval_into(out) } -> std::same_as<void>;
     }
     {
-        if (this->shape() != expr.output_shape())
+        if (this->shape() != expr.output_shape()) {
             reShape(expr.output_shape());
+        }
         expr.eval_into(*this);
         return *this;
     }
