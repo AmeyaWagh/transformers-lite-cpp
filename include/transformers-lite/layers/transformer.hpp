@@ -1,4 +1,6 @@
 #pragma once
+#include <map>
+#include <string>
 #include <vector>
 
 #include "../core/ops.hpp"
@@ -49,6 +51,29 @@ template <template <class> class COMPUTE, class T> struct TransformerWeights {
     Tensor<COMPUTE, T> rms_final_weight; // (dim,)
     // (optional) classifier weights for the logits, on the last layer
     Tensor<COMPUTE, T> wcls; // (vocab_size, dim)
+
+    /**
+     * @brief Return all weight tensors as a flat map of non-owning views.
+     *
+     * Layered tensors (e.g. wq, wk, ...) are returned unsliced; callers
+     * should slice per-layer before passing to initializeLayer.
+     */
+    auto stateDict() const -> std::map<std::string, TensorView<T>> {
+        return {
+            {"token_embedding_table", token_embedding_table},
+            {"rms_att_weight", rms_att_weight},
+            {"rms_ffn_weight", rms_ffn_weight},
+            {"wq", wq},
+            {"wk", wk},
+            {"wv", wv},
+            {"wo", wo},
+            {"w1", w1},
+            {"w2", w2},
+            {"w3", w3},
+            {"rms_final_weight", rms_final_weight},
+            {"wcls", wcls},
+        };
+    }
 };
 
 /**
@@ -66,7 +91,7 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     using typename Base::value_type;
 
     /**
-     * @brief Construct a TransformerBlock.
+     * @brief Construct a TransformerBlock with pre-bound weight views.
      *
      * @param attention attention layer (takes ownership)
      * @param feed_forward feed-forward layer (takes ownership)
@@ -79,6 +104,31 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
                               TensorView<value_type> &rms_ffn_weight, TensorView<value_type> &wo, TensorView<value_type> &w_rms_att, size_t dim)
         : m_attention(std::move(attention)), m_feedforward(std::move(feed_forward)), m_w_rms_ffn(rms_ffn_weight), m_xh(Shape(dim)), m_xh2(Shape(dim)), m_wo(wo),
           m_w_rms_att(w_rms_att) {}
+
+    /**
+     * @brief Construct a TransformerBlock from dimensions only; call initializeLayer before forward.
+     *
+     * @param attention attention layer (takes ownership)
+     * @param feed_forward feed-forward layer (takes ownership)
+     * @param dim transformer model dimension
+     */
+    explicit TransformerBlock(typename Attention<COMPUTE, value_type>::ptr attention, typename FeedForward<COMPUTE, value_type>::ptr feed_forward, size_t dim)
+        : m_attention(std::move(attention)), m_feedforward(std::move(feed_forward)), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
+
+    /**
+     * @brief Bind weight views from a per-layer state dict and propagate to sub-layers.
+     *
+     * Expected keys: "wo", "rms_att", "rms_ffn", "wq", "wk", "wv", "w1", "w2", "w3".
+     *
+     * @param state_dict map of weight name to tensor view (already sliced for this layer)
+     */
+    void initializeLayer(const std::map<std::string, TensorView<value_type>> &state_dict) {
+        m_wo = state_dict.at("wo");
+        m_w_rms_att = state_dict.at("rms_att");
+        m_w_rms_ffn = state_dict.at("rms_ffn");
+        m_attention->initializeLayer({{"wq", state_dict.at("wq")}, {"wk", state_dict.at("wk")}, {"wv", state_dict.at("wv")}});
+        m_feedforward->initializeLayer({{"w1", state_dict.at("w1")}, {"w2", state_dict.at("w2")}, {"w3", state_dict.at("w3")}});
+    }
 
     /**
      * @brief Forward pass through the transformer block.
@@ -137,48 +187,51 @@ template <template <class> class COMPUTE, class T> class Transformer {
     /**
      * @brief Construct a Transformer from a config and pre-loaded weights.
      *
+     * The weights object must outlive this Transformer — layers hold non-owning
+     * views into its tensors.
+     *
      * @param config transformer hyperparameters
-     * @param weights pre-loaded model weights
+     * @param weights pre-loaded model weights (not owned)
      */
     Transformer(TransformerConfig &config, TransformerWeights<COMPUTE, value_type> &weights) : m_config(config), m_weights(weights), m_linear(nullptr) {
         initializeLayers();
     }
 
     /**
-     * @brief Build attention, feed-forward, and linear layers from the loaded weights.
+     * @brief Build layers by slicing weights from the state dict and calling initializeLayer on each.
      */
     void initializeLayers() {
-        size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
-        size_t dim = static_cast<size_t>(m_config.dim);
-        size_t n_heads = static_cast<size_t>(m_config.n_heads);
-        size_t head_size = static_cast<size_t>(m_config.dim / m_config.n_heads);
-        size_t hidden_dim = static_cast<size_t>(m_config.hidden_dim);
-        size_t n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
-        size_t seq_len = static_cast<size_t>(m_config.seq_len);
+        const size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
+        const size_t dim = static_cast<size_t>(m_config.dim);
+        const size_t n_heads = static_cast<size_t>(m_config.n_heads);
+        const size_t hidden_dim = static_cast<size_t>(m_config.hidden_dim);
+        const size_t n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
+        const size_t seq_len = static_cast<size_t>(m_config.seq_len);
 
-        // NOTE dim == n_heads * head_size
-        (void)head_size;
+        auto sd = m_weights.stateDict();
 
-        for (size_t layer_idx = 0; layer_idx < static_cast<size_t>(m_config.n_layers); layer_idx++) {
-            TensorView<value_type> wq = m_weights.wq.slice(layer_idx); // (dim, n_heads * head_size)
-            TensorView<value_type> wk = m_weights.wk.slice(layer_idx); // (dim, n_kv_heads * head_size)
-            TensorView<value_type> wv = m_weights.wv.slice(layer_idx); // (dim, n_kv_heads * head_size)
-            auto attention = std::make_unique<Attention<COMPUTE, value_type>>(wq, wk, wv, kv_dim, dim, n_heads, n_kv_heads, seq_len);
+        for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); l++) {
+            std::map<std::string, TensorView<value_type>> layer_sd = {
+                {"wq", sd.at("wq").slice(l)},
+                {"wk", sd.at("wk").slice(l)},
+                {"wv", sd.at("wv").slice(l)},
+                {"wo", sd.at("wo").slice(l)},
+                {"w1", sd.at("w1").slice(l)},
+                {"w2", sd.at("w2").slice(l)},
+                {"w3", sd.at("w3").slice(l)},
+                {"rms_att", sd.at("rms_att_weight").slice(l)},
+                {"rms_ffn", sd.at("rms_ffn_weight").slice(l)},
+            };
 
-            TensorView<value_type> w1 = m_weights.w1.slice(layer_idx); // (hidden_dim, dim)
-            TensorView<value_type> w2 = m_weights.w2.slice(layer_idx); // (dim, hidden_dim)
-            TensorView<value_type> w3 = m_weights.w3.slice(layer_idx); // (hidden_dim, dim)
-            auto feedforward = std::make_unique<FeedForward<COMPUTE, value_type>>(w1, w2, w3, dim, hidden_dim);
-
-            TensorView<value_type> wo = m_weights.wo.slice(layer_idx);                    // (dim, dim)
-            TensorView<value_type> w_rms_att = m_weights.rms_att_weight.slice(layer_idx); // (dim)
-            TensorView<value_type> w_rms_ffn = m_weights.rms_ffn_weight.slice(layer_idx); // (dim)
-            auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(std::move(attention), std::move(feedforward), w_rms_ffn, wo, w_rms_att, dim);
-
+            auto attention = std::make_unique<Attention<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len);
+            auto feedforward = std::make_unique<FeedForward<COMPUTE, value_type>>(dim, hidden_dim);
+            auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(std::move(attention), std::move(feedforward), dim);
+            block->initializeLayer(layer_sd);
             m_layers.push_back(std::move(block));
         }
 
-        m_linear = std::make_unique<Linear<COMPUTE, value_type>>(m_weights.wcls);
+        m_linear = std::make_unique<Linear<COMPUTE, value_type>>();
+        m_linear->initializeLayer({{"wcls", sd.at("wcls")}});
         m_out_logits.reShape(Shape(m_linear->outDim()));
         m_x_in.reShape(Shape(dim));
     }
@@ -213,7 +266,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
  private:
     TransformerConfig m_config;
-    TransformerWeights<COMPUTE, value_type> m_weights;
+    const TransformerWeights<COMPUTE, value_type> &m_weights;
     typename Linear<COMPUTE, value_type>::ptr m_linear;
     Tensor<COMPUTE, value_type> m_x_in;
     Tensor<COMPUTE, value_type> m_out_logits;

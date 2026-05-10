@@ -1,4 +1,6 @@
 #pragma once
+#include <map>
+#include <string>
 
 #include "../core/ops.hpp"
 #include "../core/tensor.hpp"
@@ -20,12 +22,24 @@ template <template <class> class COMPUTE, class T> class Linear : public LayerBa
     using typename Base::ptr;
     using typename Base::value_type;
 
+    /** @brief Construct an unbound Linear layer; call initializeLayer before forward. */
+    Linear() = default;
+
     /**
-     * @brief Construct a Linear layer.
+     * @brief Construct a Linear layer with a pre-bound weight view.
      *
      * @param wcls weight matrix view (out_dim, in_dim)
      */
     explicit Linear(TensorView<value_type> &wcls) : m_wcls(wcls) {}
+
+    /**
+     * @brief Bind weight views from a state dict.
+     *
+     * Expected keys: "wcls".
+     *
+     * @param state_dict map of weight name to tensor view
+     */
+    void initializeLayer(const std::map<std::string, TensorView<value_type>> &state_dict) { m_wcls = state_dict.at("wcls"); }
 
     /**
      * @brief Forward pass: out = wcls * x.
