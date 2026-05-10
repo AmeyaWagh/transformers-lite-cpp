@@ -3,6 +3,7 @@
 #include <unordered_map>
 
 #include "../core/ops.hpp"
+#include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "layer.hpp"
 
@@ -32,7 +33,7 @@ template <template <class> class COMPUTE, class T> class Linear : public LayerBa
      *
      * @param state_dict map of weight name to tensor view
      */
-    void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) { m_wcls = state_dict.at("wcls"); }
+    void initializeLayer(const StateDict<value_type> &sd) { m_wcls = sd.at("weight"); }
 
     /**
      * @brief Forward pass: out = wcls * x.

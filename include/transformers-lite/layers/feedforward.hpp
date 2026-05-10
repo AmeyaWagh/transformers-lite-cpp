@@ -3,6 +3,7 @@
 #include <unordered_map>
 
 #include "../core/ops.hpp"
+#include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "layer.hpp"
 
@@ -39,10 +40,10 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
      *
      * @param state_dict map of weight name to tensor view
      */
-    void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
-        m_w1 = state_dict.at("w1");
-        m_w2 = state_dict.at("w2");
-        m_w3 = state_dict.at("w3");
+    void initializeLayer(const StateDict<value_type> &sd) {
+        m_w1 = sd.at("w1.weight");
+        m_w2 = sd.at("w2.weight");
+        m_w3 = sd.at("w3.weight");
     }
 
     /**

@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../core/ops.hpp"
+#include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "attention.hpp"
 #include "feedforward.hpp"
@@ -61,8 +62,8 @@ template <template <class> class COMPUTE, class T> struct TransformerWeights {
      *
      * @param n_layers number of transformer layers
      */
-    auto stateDict(size_t n_layers) const -> std::unordered_map<std::string, TensorView<T>> {
-        std::unordered_map<std::string, TensorView<T>> sd;
+    auto stateDict(size_t n_layers) const -> StateDict<T> {
+        StateDict<T> sd;
         sd["token_embedding_table.weight"] = token_embedding_table;
         sd["rms_final.weight"] = rms_final_weight;
         sd["output.weight"] = wcls;
@@ -115,16 +116,18 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     /**
      * @brief Bind all weights from the per-layer state dict.
      *
-     * Expected keys: "wq", "wk", "wv", "wo", "w1", "w2", "w3", "rms_att", "rms_ffn".
+     * Expected keys follow the PyTorch naming after the "layers.N." prefix is stripped:
+     *   "attention.wo.weight", "attention_norm.weight", "ffn_norm.weight",
+     *   "attention.{wq,wk,wv}.weight", "feedforward.{w1,w2,w3}.weight"
      *
-     * @param state_dict per-layer weight map (pre-sliced for this layer)
+     * @param sd per-layer StateDict (pre-sliced for this layer)
      */
-    void initializeLayer(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
-        m_wo = state_dict.at("wo");
-        m_w_rms_att = state_dict.at("rms_att");
-        m_w_rms_ffn = state_dict.at("rms_ffn");
-        m_attention->initializeLayer({{"wq", state_dict.at("wq")}, {"wk", state_dict.at("wk")}, {"wv", state_dict.at("wv")}});
-        m_feedforward->initializeLayer({{"w1", state_dict.at("w1")}, {"w2", state_dict.at("w2")}, {"w3", state_dict.at("w3")}});
+    void initializeLayer(const StateDict<value_type> &sd) {
+        m_wo = sd.at("attention.wo.weight");
+        m_w_rms_att = sd.at("attention_norm.weight");
+        m_w_rms_ffn = sd.at("ffn_norm.weight");
+        m_attention->initializeLayer(sd.getLayerWeights("attention"));
+        m_feedforward->initializeLayer(sd.getLayerWeights("feedforward"));
     }
 
     /**
@@ -189,9 +192,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @param config transformer hyperparameters
      * @param state_dict flat map of weight name → tensor view
      */
-    Transformer(TransformerConfig &config, const std::unordered_map<std::string, TensorView<value_type>> &state_dict) : m_config(config), m_linear(nullptr) {
-        initializeLayers(state_dict);
-    }
+    Transformer(TransformerConfig &config, const StateDict<value_type> &state_dict) : m_config(config), m_linear(nullptr) { initializeLayers(state_dict); }
 
     /**
      * @brief Convenience constructor: builds the state dict from a TransformerWeights object.
@@ -214,7 +215,7 @@ template <template <class> class COMPUTE, class T> class Transformer {
      *
      * @param state_dict flat map of weight name → tensor view
      */
-    void initializeLayers(const std::unordered_map<std::string, TensorView<value_type>> &state_dict) {
+    void initializeLayers(const StateDict<value_type> &state_dict) {
         const size_t kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
         const size_t dim = static_cast<size_t>(m_config.dim);
         const size_t n_heads = static_cast<size_t>(m_config.n_heads);
@@ -226,22 +227,13 @@ template <template <class> class COMPUTE, class T> class Transformer {
         m_rms_final = state_dict.at("rms_final.weight");
 
         for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); ++l) {
-            const std::string pfx = "layers." + std::to_string(l) + ".";
-            const std::unordered_map<std::string, TensorView<value_type>> layer_sd = {
-                {"wq", state_dict.at(pfx + "attention.wq.weight")},   {"wk", state_dict.at(pfx + "attention.wk.weight")},
-                {"wv", state_dict.at(pfx + "attention.wv.weight")},   {"wo", state_dict.at(pfx + "attention.wo.weight")},
-                {"w1", state_dict.at(pfx + "feedforward.w1.weight")}, {"w2", state_dict.at(pfx + "feedforward.w2.weight")},
-                {"w3", state_dict.at(pfx + "feedforward.w3.weight")}, {"rms_att", state_dict.at(pfx + "attention_norm.weight")},
-                {"rms_ffn", state_dict.at(pfx + "ffn_norm.weight")},
-            };
-
             auto block = std::make_unique<TransformerBlock<COMPUTE, value_type>>(kv_dim, dim, n_heads, n_kv_heads, seq_len, hidden_dim);
-            block->initializeLayer(layer_sd);
+            block->initializeLayer(state_dict.getLayerWeights("layers." + std::to_string(l)));
             m_layers.push_back(std::move(block));
         }
 
         m_linear = std::make_unique<Linear<COMPUTE, value_type>>();
-        m_linear->initializeLayer({{"wcls", state_dict.at("output.weight")}});
+        m_linear->initializeLayer(state_dict.getLayerWeights("output"));
         m_out_logits.reShape(Shape(m_linear->outDim()));
         m_x_in.reShape(Shape(dim));
     }
