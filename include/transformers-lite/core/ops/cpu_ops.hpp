@@ -12,145 +12,162 @@
 namespace transformers_lite {
 
 template <typename T> struct Ops<CPU, T> {
-    static void add(T *out, const T *a, const T *b, size_t n) {
-        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
-            addAVX512(out, a, b, n);
-        else
-            for (size_t i = 0; i < n; ++i)
-                out[i] = a[i] + b[i];
+    static void add(T *out, const T *lhs, const T *rhs, size_t len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            addAVX512(out, lhs, rhs, len);
+        } else {
+            for (size_t i = 0; i < len; ++i) {
+                out[i] = lhs[i] + rhs[i];
+            }
+        }
     }
 
-    static void sub(T *out, const T *a, const T *b, size_t n) {
-        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
-            subAVX512(out, a, b, n);
-        else
-            for (size_t i = 0; i < n; ++i)
-                out[i] = a[i] - b[i];
+    static void sub(T *out, const T *lhs, const T *rhs, size_t len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            subAVX512(out, lhs, rhs, len);
+        } else {
+            for (size_t i = 0; i < len; ++i) {
+                out[i] = lhs[i] - rhs[i];
+            }
+        }
     }
 
-    static void mul(T *out, const T *a, const T *b, size_t n) {
-        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
-            mulAVX512(out, a, b, n);
-        else
-            for (size_t i = 0; i < n; ++i)
-                out[i] = a[i] * b[i];
+    static void mul(T *out, const T *lhs, const T *rhs, size_t len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            mulAVX512(out, lhs, rhs, len);
+        } else {
+            for (size_t i = 0; i < len; ++i) {
+                out[i] = lhs[i] * rhs[i];
+            }
+        }
     }
 
-    static void div(T *out, const T *a, const T *b, size_t n) {
-        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
-            divAVX512(out, a, b, n);
-        else
-            for (size_t i = 0; i < n; ++i)
-                out[i] = a[i] / b[i];
+    static void div(T *out, const T *lhs, const T *rhs, size_t len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            divAVX512(out, lhs, rhs, len);
+        } else {
+            for (size_t i = 0; i < len; ++i) {
+                out[i] = lhs[i] / rhs[i];
+            }
+        }
     }
 
-    static void scale(T *out, const T *a, T scalar, size_t n) {
-        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
-            scaleAVX512(out, a, scalar, n);
-        else
-            for (size_t i = 0; i < n; ++i)
-                out[i] = a[i] * scalar;
+    static void scale(T *out, const T *src, T scalar, size_t len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            scaleAVX512(out, src, scalar, len);
+        } else {
+            for (size_t i = 0; i < len; ++i) {
+                out[i] = src[i] * scalar;
+            }
+        }
     }
 
-    [[nodiscard]] static T dot(const T *a, const T *b, size_t n) {
-        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>)
-            return static_cast<T>(dotAVX512(a, b, n));
-        else {
+    [[nodiscard]] static T dot(const T *lhs, const T *rhs, size_t len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            return static_cast<T>(dotAVX512(lhs, rhs, len));
+        } else {
             T val = T(0);
-            for (size_t i = 0; i < n; ++i)
-                val += a[i] * b[i];
+            for (size_t i = 0; i < len; ++i) {
+                val += lhs[i] * rhs[i];
+            }
             return val;
         }
     }
 
-    static void matmul(T *out, const T *x, const T *w, int n, int d) {
+    static void matmul(T *out, const T *input, const T *weights, int inDim, int outDim) {
         if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
-            matmulAVX512(out, x, w, n, d);
+            matmulAVX512(out, input, weights, inDim, outDim);
         } else {
             int i;
 #pragma omp parallel for private(i)
-            for (i = 0; i < d; i++) {
+            for (i = 0; i < outDim; i++) {
                 T val = T(0);
-                for (int j = 0; j < n; j++)
-                    val += w[i * n + j] * x[j];
+                for (int j = 0; j < inDim; j++) {
+                    val += weights[(i * inDim) + j] * input[j];
+                }
                 out[i] = val;
             }
         }
     }
 
-    static void silu(T *out, const T *x, size_t n) {
-        for (size_t i = 0; i < n; ++i) {
-            T val = x[i];
+    static void silu(T *out, const T *src, size_t len) {
+        for (size_t i = 0; i < len; ++i) {
+            T val = src[i];
             out[i] = val / (static_cast<T>(1) + std::exp(-val));
         }
     }
 
-    static void rope(T *q, T *k, int pos, size_t head_size, size_t dim, size_t kv_dim) {
+    static void rope(T *query, T *keys, int pos, size_t headSize, size_t dim, size_t kvDim) {
         for (size_t i = 0; i < dim; i += 2) {
-            size_t head_dim = i % head_size;
-            T freq = static_cast<T>(1) / std::pow(static_cast<T>(10000), head_dim / static_cast<T>(head_size));
+            size_t head_dim = i % headSize;
+            T freq = static_cast<T>(1) / std::pow(static_cast<T>(10000), head_dim / static_cast<T>(headSize));
             T theta = static_cast<T>(pos) * freq;
             T fcr = std::cos(theta);
             T fci = std::sin(theta);
-            size_t rotn = i < kv_dim ? 2 : 1;
+            size_t rotn = i < kvDim ? 2 : 1;
             for (size_t r = 0; r < rotn; r++) {
-                T *vec = r == 0 ? q : k;
-                T v0 = vec[i];
-                T v1 = vec[i + 1];
-                vec[i] = v0 * fcr - v1 * fci;
-                vec[i + 1] = v0 * fci + v1 * fcr;
+                T *vec = r == 0 ? query : keys;
+                T real = vec[i];
+                T imag = vec[i + 1];
+                vec[i] = (real * fcr) - (imag * fci);
+                vec[i + 1] = (real * fci) + (imag * fcr);
             }
         }
     }
 
-    static void softmax(T *x, size_t n) {
+    static void softmax(T *data, size_t len) {
         if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
-            softmaxAVX512(x, n);
+            softmaxAVX512(data, len);
         } else {
-            T max_val = x[0];
-            for (size_t i = 1; i < n; ++i)
-                if (x[i] > max_val)
-                    max_val = x[i];
-            T sum = T(0);
-            for (size_t i = 0; i < n; ++i) {
-                x[i] = std::exp(x[i] - max_val);
-                sum += x[i];
+            T max_val = data[0];
+            for (size_t i = 1; i < len; ++i) {
+                if (data[i] > max_val) {
+                    max_val = data[i];
+                }
             }
-            for (size_t i = 0; i < n; ++i)
-                x[i] /= sum;
+            T sum = T(0);
+            for (size_t i = 0; i < len; ++i) {
+                data[i] = std::exp(data[i] - max_val);
+                sum += data[i];
+            }
+            for (size_t i = 0; i < len; ++i) {
+                data[i] /= sum;
+            }
         }
     }
 
-    static void scaledDotProductAttention(T *out, const T *q, const T *key_cache, const T *val_cache, T *att_buf, int pos, size_t n_heads, size_t kv_heads,
-                                          size_t head_size, size_t kv_dim, size_t seq_len) {
+    static void scaledDotProductAttention(T *out, const T *query, const T *keyCache, const T *valCache, T *attBuf, int pos, size_t nHeads, size_t kvHeads,
+                                          size_t headSize, size_t kvDim, size_t seqLen) {
         if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
-            scaledDotProductAttentionAVX512(out, q, key_cache, val_cache, att_buf, pos, n_heads, kv_heads, head_size, kv_dim, seq_len);
+            scaledDotProductAttentionAVX512(out, query, keyCache, valCache, attBuf, pos, nHeads, kvHeads, headSize, kvDim, seqLen);
             return;
         }
-        const size_t kv_mul = n_heads / kv_heads;
-        const T scale = static_cast<T>(1) / std::sqrt(static_cast<T>(head_size));
+        const size_t kv_mul = nHeads / kvHeads;
+        const T scale = static_cast<T>(1) / std::sqrt(static_cast<T>(headSize));
         size_t h;
 #pragma omp parallel for private(h)
-        for (h = 0; h < n_heads; h++) {
-            const T *q_h = q + h * head_size;
-            T *att_h = att_buf + h * seq_len;
-            const size_t kv_off = (h / kv_mul) * head_size;
+        for (h = 0; h < nHeads; h++) {
+            const T *q_h = query + (h * headSize);
+            T *att_h = attBuf + (h * seqLen);
+            const size_t kv_off = (h / kv_mul) * headSize;
 
             for (size_t t = 0; t <= static_cast<size_t>(pos); t++) {
-                const T *k_t = key_cache + t * kv_dim + kv_off;
-                att_h[t] = dot(q_h, k_t, head_size) * scale;
+                const T *k_t = keyCache + (t * kvDim) + kv_off;
+                att_h[t] = dot(q_h, k_t, headSize) * scale;
             }
 
             softmax(att_h, static_cast<size_t>(pos) + 1);
 
-            T *out_h = out + h * head_size;
-            for (size_t i = 0; i < head_size; i++)
+            T *out_h = out + (h * headSize);
+            for (size_t i = 0; i < headSize; i++) {
                 out_h[i] = T(0);
+            }
             for (size_t t = 0; t <= static_cast<size_t>(pos); t++) {
-                const T *v_t = val_cache + t * kv_dim + kv_off;
+                const T *v_t = valCache + (t * kvDim) + kv_off;
                 T att = att_h[t];
-                for (size_t i = 0; i < head_size; i++)
+                for (size_t i = 0; i < headSize; i++) {
                     out_h[i] += att * v_t[i];
+                }
             }
         }
     }

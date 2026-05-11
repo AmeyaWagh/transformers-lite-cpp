@@ -52,14 +52,14 @@ template <template <class> class COMPUTE, class T> struct TransformerWeights {
      * Per-layer weights are pre-sliced. All views point into this object,
      * which must outlive the returned map.
      *
-     * @param n_layers number of transformer layers
+     * @param nLayers number of transformer layers
      */
-    auto stateDict(size_t n_layers) const -> StateDict<T> {
+    auto stateDict(size_t nLayers) const -> StateDict<T> {
         StateDict<T> sd;
         sd["token_embedding_table.weight"] = token_embedding_table;
         sd["rms_final.weight"] = rms_final_weight;
         sd["output.weight"] = wcls;
-        for (size_t i = 0; i < n_layers; ++i) {
+        for (size_t i = 0; i < nLayers; ++i) {
             const std::string pfx = "layers." + std::to_string(i) + ".";
             sd[pfx + "attention.wq.weight"] = wq.slice(i);
             sd[pfx + "attention.wk.weight"] = wk.slice(i);
@@ -92,27 +92,27 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
     /**
      * @brief Construct a TransformerBlock, creating Attention and FeedForward sub-layers.
      *
-     * @param kv_dim    key/value cache dimension per position
+     * @param kvDim     key/value cache dimension per position
      * @param dim       transformer model dimension
-     * @param n_heads   number of query heads
-     * @param kv_heads  number of key/value heads
-     * @param seq_len   maximum sequence length
-     * @param hidden_dim FFN hidden dimension
+     * @param nHeads    number of query heads
+     * @param kvHeads   number of key/value heads
+     * @param seqLen    maximum sequence length
+     * @param hiddenDim FFN hidden dimension
      */
-    explicit TransformerBlock(size_t kv_dim, size_t dim, size_t n_heads, size_t kv_heads, size_t seq_len, size_t hidden_dim)
-        : m_attention(kv_dim, dim, n_heads, kv_heads, seq_len), m_feedforward(dim, hidden_dim), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
+    explicit TransformerBlock(size_t kvDim, size_t dim, size_t nHeads, size_t kvHeads, size_t seqLen, size_t hiddenDim)
+        : m_attention(kvDim, dim, nHeads, kvHeads, seqLen), m_feedforward(dim, hiddenDim), m_xh(Shape(dim)), m_xh2(Shape(dim)) {}
 
     /**
      * @brief Bind all weights from the per-layer state dict.
      *
-     * @param sd per-layer StateDict (pre-sliced for this layer)
+     * @param stateDict per-layer StateDict (pre-sliced for this layer)
      */
-    void initializeLayer(const StateDict<value_type> &sd) {
-        m_wo = sd.at("attention.wo.weight");
-        m_w_rms_att = sd.at("attention_norm.weight");
-        m_w_rms_ffn = sd.at("ffn_norm.weight");
-        m_attention.initializeLayer(sd.getLayerWeights("attention"));
-        m_feedforward.initializeLayer(sd.getLayerWeights("feedforward"));
+    void initializeLayer(const StateDict<value_type> &stateDict) {
+        m_wo = stateDict.at("attention.wo.weight");
+        m_w_rms_att = stateDict.at("attention_norm.weight");
+        m_w_rms_ffn = stateDict.at("ffn_norm.weight");
+        m_attention.initializeLayer(stateDict.getLayerWeights("attention"));
+        m_feedforward.initializeLayer(stateDict.getLayerWeights("feedforward"));
     }
 
     /**
@@ -120,14 +120,14 @@ template <template <class> class COMPUTE, class T> class TransformerBlock : publ
      *
      * x is never modified. m_x is allocated on the first call and reused after.
      *
-     * @param x input tensor (dim,)
-     * @param pos_ current sequence position
+     * @param x   input tensor (dim,)
+     * @param pos current sequence position
      * @return reference to the layer-owned residual output buffer (dim,)
      */
-    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &x, int pos_) {
+    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &x, int pos) {
         // attention branch
         m_xh = rmsnorm(x, m_w_rms_att);
-        auto &attn = m_attention.forward(m_xh, pos_);
+        auto &attn = m_attention.forward(m_xh, pos);
         m_xh2 = matmul(attn, m_wo);
         m_x = x + m_xh2;
 
@@ -166,9 +166,9 @@ template <template <class> class COMPUTE, class T> class Transformer {
      * @brief Construct from a flat PyTorch-style state dict.
      *
      * @param config transformer hyperparameters
-     * @param state_dict flat map of weight name → tensor view
+     * @param stateDict flat map of weight name → tensor view
      */
-    Transformer(TransformerConfig &config, const StateDict<value_type> &state_dict) : m_config(config) { initializeLayers(state_dict); }
+    Transformer(TransformerConfig &config, const StateDict<value_type> &stateDict) : m_config(config) { initializeLayers(stateDict); }
 
     /**
      * @brief Convenience constructor: builds the state dict from a TransformerWeights object.
@@ -183,9 +183,9 @@ template <template <class> class COMPUTE, class T> class Transformer {
     /**
      * @brief Build layers from a flat state dict.
      *
-     * @param state_dict flat map of weight name → tensor view
+     * @param stateDict flat map of weight name → tensor view
      */
-    void initializeLayers(const StateDict<value_type> &state_dict) {
+    void initializeLayers(const StateDict<value_type> &stateDict) {
         auto kv_dim = static_cast<size_t>((m_config.dim * m_config.n_kv_heads) / m_config.n_heads);
         auto dim = static_cast<size_t>(m_config.dim);
         auto n_heads = static_cast<size_t>(m_config.n_heads);
@@ -193,16 +193,16 @@ template <template <class> class COMPUTE, class T> class Transformer {
         auto n_kv_heads = static_cast<size_t>(m_config.n_kv_heads);
         auto seq_len = static_cast<size_t>(m_config.seq_len);
 
-        m_token_embedding = state_dict.at("token_embedding_table.weight");
-        m_rms_final = state_dict.at("rms_final.weight");
+        m_token_embedding = stateDict.at("token_embedding_table.weight");
+        m_rms_final = stateDict.at("rms_final.weight");
 
         m_layers.reserve(static_cast<size_t>(m_config.n_layers));
         for (size_t l = 0; l < static_cast<size_t>(m_config.n_layers); ++l) {
             m_layers.emplace_back(kv_dim, dim, n_heads, n_kv_heads, seq_len, hidden_dim);
-            m_layers.back().initializeLayer(state_dict.getLayerWeights("layers." + std::to_string(l)));
+            m_layers.back().initializeLayer(stateDict.getLayerWeights("layers." + std::to_string(l)));
         }
 
-        m_linear.initializeLayer(state_dict.getLayerWeights("output"));
+        m_linear.initializeLayer(stateDict.getLayerWeights("output"));
 
         m_x_in.reShape(Shape(dim));   // working buffer for token embedding copy
         m_x_norm.reShape(Shape(dim)); // output buffer for final RMSNorm
@@ -226,8 +226,9 @@ template <template <class> class COMPUTE, class T> class Transformer {
 
         // Each block reads its input and returns a ref to its own output buffer.
         Tensor<COMPUTE, value_type> *x = &m_x_in;
-        for (auto &layer : m_layers)
+        for (auto &layer : m_layers) {
             x = &layer.forward(*x, pos);
+        }
 
         m_x_norm = rmsnorm(*x, m_rms_final);
         return m_linear.forward(m_x_norm);

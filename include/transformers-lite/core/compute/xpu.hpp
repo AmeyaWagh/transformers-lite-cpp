@@ -17,10 +17,10 @@ struct XPU {};
  *   - get(T*, size_t) -> T&   — indexed element access
  */
 template <class Backend, class T>
-concept ComputeBackend = requires(T *ptr, const T *cptr, std::size_t n, T val, std::size_t idx) {
+concept ComputeBackend = requires(T *ptr, const T *cptr, std::size_t len, T val, std::size_t idx) {
     typename Backend::allocator_type;
-    { Backend::fill(ptr, n, val) } -> std::same_as<void>;
-    { Backend::copy(cptr, ptr, n) } -> std::same_as<void>;
+    { Backend::fill(ptr, len, val) } -> std::same_as<void>;
+    { Backend::copy(cptr, ptr, len) } -> std::same_as<void>;
     { Backend::get(ptr, idx) } -> std::same_as<T &>;
 };
 

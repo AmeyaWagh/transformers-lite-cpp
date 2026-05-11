@@ -9,11 +9,13 @@ Checks: >
   -readability-magic-numbers,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -readability-uppercase-literal-suffix,
+  -readability-function-cognitive-complexity
 
 WarningsAsErrors: ""
 
-HeaderFilterRegex: "include/transformers-cpp/.*"
+HeaderFilterRegex: "include/transformers-lite/.*"
 
 CheckOptions:
   - key: readability-identifier-naming.ClassCase
@@ -22,7 +24,13 @@ CheckOptions:
     value: CamelCase
   - key: readability-identifier-naming.FunctionCase
     value: camelBack
-  - key: readability-identifier-naming.MemberPrefix
+  - key: readability-identifier-naming.PrivateMemberPrefix
     value: m_
   - key: readability-identifier-naming.ParameterCase
     value: camelBack
+  - key: readability-identifier-length.IgnoredLoopCounterNames
+    value: "^[ijklhrt]$"
+  - key: readability-identifier-length.IgnoredVariableNames
+    value: "^[ix]$"
+  - key: readability-identifier-length.IgnoredParameterNames
+    value: "^[x]$"

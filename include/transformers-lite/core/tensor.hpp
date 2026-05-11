@@ -649,7 +649,7 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
      * @param p source pointer
      * @param num_elements number of elements to copy
      */
-    void copyFrom(const pointer p, size_t num_elements) { m_memory.copyFrom(p, num_elements); }
+    void copyFrom(const pointer src, size_t numElements) { m_memory.copyFrom(src, numElements); }
 
     /**
      * @brief Copy data and shape from a TensorView into this tensor.

@@ -29,19 +29,19 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
      * @param dim transformer model dimension
      * @param hidden_dim hidden layer dimension
      */
-    FeedForward(size_t dim, size_t hidden_dim) : m_dim(dim), m_hidden_dim(hidden_dim), m_hb(Shape(hidden_dim)), m_hb2(Shape(hidden_dim)) {}
+    FeedForward(size_t dim, size_t hiddenDim) : m_dim(dim), m_hidden_dim(hiddenDim), m_hb(Shape(hiddenDim)), m_hb2(Shape(hiddenDim)) {}
 
     /**
      * @brief Bind weight views from a state dict.
      *
      * Expected keys: "w1.weight", "w2.weight", "w3.weight".
      *
-     * @param sd map of weight name to tensor view
+     * @param stateDict map of weight name to tensor view
      */
-    void initializeLayer(const StateDict<value_type> &sd) {
-        m_w1 = sd.at("w1.weight");
-        m_w2 = sd.at("w2.weight");
-        m_w3 = sd.at("w3.weight");
+    void initializeLayer(const StateDict<value_type> &stateDict) {
+        m_w1 = stateDict.at("w1.weight");
+        m_w2 = stateDict.at("w2.weight");
+        m_w3 = stateDict.at("w3.weight");
     }
 
     /**
@@ -49,15 +49,15 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
      *
      * Allocates the output buffer on the first call; subsequent calls reuse it.
      *
-     * @param in input tensor (dim,)
+     * @param input input tensor (dim,)
      * @return reference to the layer-owned output buffer (dim,)
      */
-    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &in) {
-        assert(in.shape() == Shape(m_dim));
+    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &input) {
+        assert(input.shape() == Shape(m_dim));
 
-        // Compute Linear projections: m_hb = w1 * in, m_hb2 = w3 * in
-        m_hb = matmul(in, m_w1);
-        m_hb2 = matmul(in, m_w3);
+        // Compute Linear projections: m_hb = w1 * input, m_hb2 = w3 * input
+        m_hb = matmul(input, m_w1);
+        m_hb2 = matmul(input, m_w3);
 
         // Apply activation and combine
         m_hb = silu(m_hb);

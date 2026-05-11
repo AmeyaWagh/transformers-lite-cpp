@@ -38,22 +38,22 @@ class Memory {
     /**
      * @brief Construct a new Memory object
      *
-     * @param num_elements number of elements in the memory
+     * @param numElements number of elements in the memory
      */
-    Memory(const size_t num_elements) : m_alloc(), m_data(nullptr), m_size(0), m_allocated_size(0) {
-        reserve(num_elements);
-        // resize(num_elements);
+    Memory(const size_t numElements) : m_alloc(), m_data(nullptr), m_size(0), m_allocated_size(0) {
+        reserve(numElements);
+        // resize(numElements);
     }
 
     /**
      * @brief Construct a new Memory object
      *
      * @param scalar initialize memory with scalar value
-     * @param num_elements number of elements in the memory
+     * @param numElements number of elements in the memory
      */
-    Memory(const T scalar, const size_t num_elements) : m_alloc() {
-        // resize(num_elements);
-        reserve(num_elements);
+    Memory(const T scalar, const size_t numElements) : m_alloc() {
+        // resize(numElements);
+        reserve(numElements);
         COMPUTE<T>::fill(m_data, m_size, scalar);
     }
 
@@ -109,42 +109,42 @@ class Memory {
     /**
      * @brief resizes the memory buffer
      *
-     * @param num_elements
+     * @param numElements
      */
-    void resize(const size_t num_elements, value_type val = value_type()) {
+    void resize(const size_t numElements, value_type val = value_type()) {
         // TODO need to copy data in resize.
-        if (num_elements == m_allocated_size) {
+        if (numElements == m_allocated_size) {
             return;
         }
-        if (num_elements > m_allocated_size) {
-            auto temp = m_alloc.allocate(num_elements);
+        if (numElements > m_allocated_size) {
+            auto temp = m_alloc.allocate(numElements);
             if (m_data != nullptr) {
                 COMPUTE<T>::copy(m_data, temp, m_size);
             }
-            COMPUTE<T>::fill(temp + m_size, num_elements - m_size, val);
+            COMPUTE<T>::fill(temp + m_size, numElements - m_size, val);
             if (m_data != nullptr) {
                 m_alloc.deallocate(m_data, m_allocated_size);
             }
             m_data = temp;
-            m_allocated_size = num_elements;
-            m_size = num_elements;
-        } else // num_elements less than m_size
+            m_allocated_size = numElements;
+            m_size = numElements;
+        } else // numElements less than m_size
         {
-            m_size = num_elements;
+            m_size = numElements;
         }
     }
 
     /**
      * @brief allocates memory for given number of elements
      *
-     * @param num_elements
+     * @param numElements
      */
-    void reserve(const size_t num_elements) {
-        if (num_elements > m_allocated_size) {
-            m_data = m_alloc.allocate(num_elements);
-            m_allocated_size = num_elements;
+    void reserve(const size_t numElements) {
+        if (numElements > m_allocated_size) {
+            m_data = m_alloc.allocate(numElements);
+            m_allocated_size = numElements;
         }
-        m_size = num_elements;
+        m_size = numElements;
     }
 
     /**
@@ -204,19 +204,19 @@ class Memory {
      * @brief Copy data from a raw pointer into this buffer.
      *
      * @param data source pointer
-     * @param num_elements number of elements to copy
+     * @param numElements number of elements to copy
      */
-    auto copyFrom(const_pointer data, size_t num_elements) { COMPUTE<T>::copy(data, m_data, num_elements); }
+    auto copyFrom(const_pointer data, size_t numElements) { COMPUTE<T>::copy(data, m_data, numElements); }
 
     /**
      * @brief Copy data from another Memory buffer into this buffer.
      *
      * @tparam COMPUTE_OTHER compute backend of the source memory
      * @tparam T_OTHER data type of the source memory
-     * @param other_mem source memory to copy from
+     * @param otherMem source memory to copy from
      */
-    template <template <class> class COMPUTE_OTHER, class T_OTHER> auto copyFrom(Memory<COMPUTE_OTHER, T_OTHER> &other_mem) {
-        COMPUTE<T>::copy(other_mem.data(), m_data, other_mem.size());
+    template <template <class> class COMPUTE_OTHER, class T_OTHER> auto copyFrom(Memory<COMPUTE_OTHER, T_OTHER> &otherMem) {
+        COMPUTE<T>::copy(otherMem.data(), m_data, otherMem.size());
     }
 
     // TODO: implement iterators.

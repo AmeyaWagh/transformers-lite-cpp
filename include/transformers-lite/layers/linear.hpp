@@ -28,9 +28,9 @@ template <template <class> class COMPUTE, class T> class Linear : public LayerBa
      *
      * Expected keys: "weight".
      *
-     * @param sd map of weight name to tensor view
+     * @param stateDict map of weight name to tensor view
      */
-    void initializeLayer(const StateDict<value_type> &sd) { m_wcls = sd.at("weight"); }
+    void initializeLayer(const StateDict<value_type> &stateDict) { m_wcls = stateDict.at("weight"); }
 
     /**
      * @brief Forward pass: out = wcls * x.

@@ -30,13 +30,13 @@ template <template <class> class COMPUTE, typename T> struct RMSNormExpr {
     [[nodiscard]] Shape outputShape() const { return x.shape(); }
 
     void evalInto(TensorView<T> &out) const {
-        const size_t n = x.size();
-        T ss = Ops<COMPUTE, T>::dot(x.data(), x.data(), n);
-        ss /= static_cast<T>(n);
-        ss += static_cast<T>(1e-5);
-        ss = static_cast<T>(1) / std::sqrt(ss);
-        Ops<COMPUTE, T>::scale(out.data(), x.data(), ss, n);
-        Ops<COMPUTE, T>::mul(out.data(), out.data(), weight.data(), n);
+        const size_t size = x.size();
+        T scale = Ops<COMPUTE, T>::dot(x.data(), x.data(), size);
+        scale /= static_cast<T>(size);
+        scale += static_cast<T>(1e-5);
+        scale = static_cast<T>(1) / std::sqrt(scale);
+        Ops<COMPUTE, T>::scale(out.data(), x.data(), scale, size);
+        Ops<COMPUTE, T>::mul(out.data(), out.data(), weight.data(), size);
     }
 };
 
@@ -105,8 +105,9 @@ template <template <class> class COMPUTE, typename T> struct RopeExpr {
     [[nodiscard]] Shape outputShape() const { return q.shape(); }
 
     void evalInto(TensorView<T> &out) const {
-        if (out.data() != q.data())
+        if (out.data() != q.data()) {
             COMPUTE<T>::copy(q.data(), out.data(), q.size()); // memory op stays on COMPUTE
+        }
         Ops<COMPUTE, T>::rope(out.data(), k.data(), pos, head_size, out.size(), k.size());
     }
 };
@@ -137,8 +138,8 @@ template <template <class> class COMPUTE, typename T> struct ScaledDotProductAtt
 // ── Factory functions ──────────────────────────────────────────────────────────
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto matmul(const Tensor<COMPUTE, T> &x, const Tensor<COMPUTE, T> &w) -> MatMulExpr<COMPUTE, T> {
-    return {TensorView<T>{x}, TensorView<T>{w}};
+[[nodiscard]] auto matmul(const Tensor<COMPUTE, T> &x, const Tensor<COMPUTE, T> &weights) -> MatMulExpr<COMPUTE, T> {
+    return {TensorView<T>{x}, TensorView<T>{weights}};
 }
 
 template <template <class> class COMPUTE, typename T>
@@ -151,37 +152,37 @@ template <template <class> class COMPUTE, typename T> [[nodiscard]] auto silu(co
 }
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto rope(const Tensor<COMPUTE, T> &q, Tensor<COMPUTE, T> &k, int pos, size_t head_size) -> RopeExpr<COMPUTE, T> {
-    return {TensorView<T>{q}, TensorView<T>{k}, pos, head_size};
+[[nodiscard]] auto rope(const Tensor<COMPUTE, T> &query, Tensor<COMPUTE, T> &keys, int pos, size_t headSize) -> RopeExpr<COMPUTE, T> {
+    return {TensorView<T>{query}, TensorView<T>{keys}, pos, headSize};
 }
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto scaledDotProductAttention(const Tensor<COMPUTE, T> &q, const Tensor<COMPUTE, T> &key_cache, const Tensor<COMPUTE, T> &val_cache,
-                                             Tensor<COMPUTE, T> &att_buf, int pos, size_t n_heads, size_t kv_heads, size_t head_size, size_t kv_dim,
-                                             size_t seq_len) -> ScaledDotProductAttentionExpr<COMPUTE, T> {
-    return {TensorView<T>{q}, TensorView<T>{key_cache}, TensorView<T>{val_cache}, TensorView<T>{att_buf}, pos, n_heads, kv_heads, head_size, kv_dim, seq_len};
+[[nodiscard]] auto scaledDotProductAttention(const Tensor<COMPUTE, T> &query, const Tensor<COMPUTE, T> &keyCache, const Tensor<COMPUTE, T> &valCache,
+                                             Tensor<COMPUTE, T> &attBuf, int pos, size_t nHeads, size_t kvHeads, size_t headSize, size_t kvDim, size_t seqLen)
+    -> ScaledDotProductAttentionExpr<COMPUTE, T> {
+    return {TensorView<T>{query}, TensorView<T>{keyCache}, TensorView<T>{valCache}, TensorView<T>{attBuf}, pos, nHeads, kvHeads, headSize, kvDim, seqLen};
 }
 
 // ── Operator overloads ────────────────────────────────────────────────────────
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto operator+(const Tensor<COMPUTE, T> &a, const Tensor<COMPUTE, T> &b) -> ElemwiseAddExpr<COMPUTE, T> {
-    return {TensorView<T>{a}, TensorView<T>{b}};
+[[nodiscard]] auto operator+(const Tensor<COMPUTE, T> &lhs, const Tensor<COMPUTE, T> &rhs) -> ElemwiseAddExpr<COMPUTE, T> {
+    return {TensorView<T>{lhs}, TensorView<T>{rhs}};
 }
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto operator-(const Tensor<COMPUTE, T> &a, const Tensor<COMPUTE, T> &b) -> ElemwiseSubExpr<COMPUTE, T> {
-    return {TensorView<T>{a}, TensorView<T>{b}};
+[[nodiscard]] auto operator-(const Tensor<COMPUTE, T> &lhs, const Tensor<COMPUTE, T> &rhs) -> ElemwiseSubExpr<COMPUTE, T> {
+    return {TensorView<T>{lhs}, TensorView<T>{rhs}};
 }
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto operator*(const Tensor<COMPUTE, T> &a, const Tensor<COMPUTE, T> &b) -> ElemwiseMulExpr<COMPUTE, T> {
-    return {TensorView<T>{a}, TensorView<T>{b}};
+[[nodiscard]] auto operator*(const Tensor<COMPUTE, T> &lhs, const Tensor<COMPUTE, T> &rhs) -> ElemwiseMulExpr<COMPUTE, T> {
+    return {TensorView<T>{lhs}, TensorView<T>{rhs}};
 }
 
 template <template <class> class COMPUTE, typename T>
-[[nodiscard]] auto operator/(const Tensor<COMPUTE, T> &a, const Tensor<COMPUTE, T> &b) -> ElemwiseDivExpr<COMPUTE, T> {
-    return {TensorView<T>{a}, TensorView<T>{b}};
+[[nodiscard]] auto operator/(const Tensor<COMPUTE, T> &lhs, const Tensor<COMPUTE, T> &rhs) -> ElemwiseDivExpr<COMPUTE, T> {
+    return {TensorView<T>{lhs}, TensorView<T>{rhs}};
 }
 
 } // namespace transformers_lite
