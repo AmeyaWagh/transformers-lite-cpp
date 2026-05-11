@@ -79,6 +79,35 @@ template <template <class> class COMPUTE, typename T> struct ElemwiseDivExpr {
     void evalInto(TensorView<T> &out) const { COMPUTE<T>::div(out.data(), a.data(), b.data(), a.size()); }
 };
 
+// ── SiluExpr ──────────────────────────────────────────────────────────────────
+
+template <template <class> class COMPUTE, typename T> struct SiluExpr {
+    using value_type = T;
+    TensorView<T> x;
+
+    [[nodiscard]] Shape outputShape() const { return x.shape(); }
+
+    void evalInto(TensorView<T> &out) const { COMPUTE<T>::silu(out.data(), x.data(), x.size()); }
+};
+
+// ── RopeExpr ──────────────────────────────────────────────────────────────────
+
+template <template <class> class COMPUTE, typename T> struct RopeExpr {
+    using value_type = T;
+    TensorView<T> q;
+    mutable TensorView<T> k; // rotated in-place as a side effect
+    int pos;
+    size_t head_size;
+
+    [[nodiscard]] Shape outputShape() const { return q.shape(); }
+
+    void evalInto(TensorView<T> &out) const {
+        if (out.data() != q.data())
+            COMPUTE<T>::copy(q.data(), out.data(), q.size());
+        COMPUTE<T>::rope(out.data(), k.data(), pos, head_size, out.size(), k.size());
+    }
+};
+
 // ── ScaledDotProductAttentionExpr ─────────────────────────────────────────────
 
 template <template <class> class COMPUTE, typename T> struct ScaledDotProductAttentionExpr {
@@ -112,6 +141,15 @@ template <template <class> class COMPUTE, typename T>
 template <template <class> class COMPUTE, typename T>
 [[nodiscard]] auto rmsnorm(const Tensor<COMPUTE, T> &x, const Tensor<COMPUTE, T> &weight) -> RMSNormExpr<COMPUTE, T> {
     return {TensorView<T>{x}, TensorView<T>{weight}};
+}
+
+template <template <class> class COMPUTE, typename T> [[nodiscard]] auto silu(const Tensor<COMPUTE, T> &x) -> SiluExpr<COMPUTE, T> {
+    return {TensorView<T>{x}};
+}
+
+template <template <class> class COMPUTE, typename T>
+[[nodiscard]] auto rope(const Tensor<COMPUTE, T> &q, Tensor<COMPUTE, T> &k, int pos, size_t head_size) -> RopeExpr<COMPUTE, T> {
+    return {TensorView<T>{q}, TensorView<T>{k}, pos, head_size};
 }
 
 template <template <class> class COMPUTE, typename T>

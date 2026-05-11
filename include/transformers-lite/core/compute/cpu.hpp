@@ -121,6 +121,31 @@ template <class T> struct CPU : public XPU {
         }
     }
 
+    static void silu(T *out, const T *x, size_t n) {
+        for (size_t i = 0; i < n; ++i) {
+            T val = x[i];
+            out[i] = val / (static_cast<T>(1) + std::exp(-val));
+        }
+    }
+
+    static void rope(T *q, T *k, int pos, size_t head_size, size_t dim, size_t kv_dim) {
+        for (size_t i = 0; i < dim; i += 2) {
+            size_t head_dim = i % head_size;
+            T freq = static_cast<T>(1) / std::pow(static_cast<T>(10000), head_dim / static_cast<T>(head_size));
+            T theta = static_cast<T>(pos) * freq;
+            T fcr = std::cos(theta);
+            T fci = std::sin(theta);
+            size_t rotn = i < kv_dim ? 2 : 1;
+            for (size_t r = 0; r < rotn; r++) {
+                T *vec = r == 0 ? q : k;
+                T v0 = vec[i];
+                T v1 = vec[i + 1];
+                vec[i] = v0 * fcr - v1 * fci;
+                vec[i + 1] = v0 * fci + v1 * fcr;
+            }
+        }
+    }
+
     /** @brief In-place softmax over the first n elements of x. */
     static void softmax(T *x, size_t n) {
         if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {

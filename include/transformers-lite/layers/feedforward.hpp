@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "layer.hpp"
@@ -59,7 +60,7 @@ template <template <class> class COMPUTE, class T> class FeedForward : public La
         m_hb2 = matmul(in, m_w3);
 
         // Apply activation and combine
-        silu_inpl(m_hb);
+        m_hb = silu(m_hb);
 
         // Element-wise Hadamard product: m_hb = m_hb * m_hb2
         m_hb = m_hb * m_hb2;

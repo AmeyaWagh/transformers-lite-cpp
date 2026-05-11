@@ -65,7 +65,7 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
         k = matmul(in, m_wk);
         v = matmul(in, m_wv);
 
-        rope(m_q, k, pos_, m_head_size);
+        m_q = rope(m_q, k, pos_, m_head_size);
 
         m_out = scaledDotProductAttention(m_q, m_key_cache, m_value_cache, m_att, pos_, m_n_heads, m_kv_heads, m_head_size, m_kv_dim, m_seq_len);
         return m_out;
