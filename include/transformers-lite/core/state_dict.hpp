@@ -21,7 +21,7 @@ template <typename T> class StateDict {
 
     StateDict() = default;
 
-    StateDict(std::initializer_list<typename map_type::value_type> il) : m_map(il) {}
+    StateDict(std::initializer_list<typename map_type::value_type> initList) : m_map(initList) {}
 
     explicit StateDict(map_type map) : m_map(std::move(map)) {}
 
@@ -49,14 +49,16 @@ template <typename T> class StateDict {
     }
 
     /** @brief Print all keys and their tensor shapes to os, sorted alphabetically. */
-    void print(std::ostream &os = std::cout) const {
+    void print(std::ostream &out = std::cout) const {
         std::vector<std::string> keys;
         keys.reserve(m_map.size());
-        for (const auto &[key, _] : m_map)
+        for (const auto &[key, _] : m_map) {
             keys.push_back(key);
-        std::sort(keys.begin(), keys.end());
-        for (const auto &key : keys)
-            os << key << ": " << m_map.at(key).shape() << "\n";
+        }
+        std::ranges::sort(keys);
+        for (const auto &key : keys) {
+            out << key << ": " << m_map.at(key).shape() << "\n";
+        }
     }
 
  private:

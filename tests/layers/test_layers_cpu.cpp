@@ -52,8 +52,7 @@ TEST(LinearTest, ZeroWeightsGivesZeroOutput) {
     layer.initializeLayer({{"weight", w}});
 
     auto x = filled(Shape(DIM), 2.f);
-    auto out = zeros(Shape(3));
-    layer.forward(x, out);
+    auto &out = layer.forward(x);
 
     for (size_t i = 0; i < 3; ++i)
         EXPECT_FLOAT_EQ(out.data()[i], 0.f);
@@ -69,8 +68,7 @@ TEST(LinearTest, IdentityWeightsPassthrough) {
     x.data()[1] = 2.f;
     x.data()[2] = 3.f;
     x.data()[3] = 4.f;
-    auto out = zeros(Shape(DIM));
-    layer.forward(x, out);
+    auto &out = layer.forward(x);
 
     EXPECT_FLOAT_EQ(out.data()[0], 1.f);
     EXPECT_FLOAT_EQ(out.data()[1], 2.f);
@@ -88,8 +86,7 @@ TEST(LinearTest, ScaledIdentityDoublesOutput) {
     auto x = zeros(Shape(DIM));
     x.data()[0] = 3.f;
     x.data()[1] = 5.f;
-    auto out = zeros(Shape(DIM));
-    layer.forward(x, out);
+    auto &out = layer.forward(x);
 
     EXPECT_FLOAT_EQ(out.data()[0], 6.f);
     EXPECT_FLOAT_EQ(out.data()[1], 10.f);
@@ -112,8 +109,7 @@ TEST(FeedForwardTest, ZeroInputGivesZeroOutput) {
     ff.initializeLayer({{"w1.weight", w1}, {"w2.weight", w2}, {"w3.weight", w3}});
 
     auto in = zeros(Shape(DIM));
-    auto out = zeros(Shape(DIM));
-    ff.forward(in, out);
+    auto &out = ff.forward(in);
 
     for (size_t i = 0; i < DIM; ++i)
         EXPECT_FLOAT_EQ(out.data()[i], 0.f);
@@ -128,8 +124,7 @@ TEST(FeedForwardTest, ZeroGateWeightsGivesZeroOutput) {
     ff.initializeLayer({{"w1.weight", w1}, {"w2.weight", w2}, {"w3.weight", w3}});
 
     auto in = filled(Shape(DIM), 1.f);
-    auto out = zeros(Shape(DIM));
-    ff.forward(in, out);
+    auto &out = ff.forward(in);
 
     for (size_t i = 0; i < DIM; ++i)
         EXPECT_FLOAT_EQ(out.data()[i], 0.f);
@@ -144,8 +139,7 @@ TEST(FeedForwardTest, ZeroW1GivesZeroOutput) {
     ff.initializeLayer({{"w1.weight", w1}, {"w2.weight", w2}, {"w3.weight", w3}});
 
     auto in = filled(Shape(DIM), 2.f);
-    auto out = zeros(Shape(DIM));
-    ff.forward(in, out);
+    auto &out = ff.forward(in);
 
     for (size_t i = 0; i < DIM; ++i)
         EXPECT_FLOAT_EQ(out.data()[i], 0.f);
@@ -166,8 +160,7 @@ TEST(FeedForwardTest, KnownArithmetic) {
     ff.initializeLayer({{"w1.weight", w1}, {"w2.weight", w2}, {"w3.weight", w3}});
 
     auto in = filled(Shape(D), 1.f);
-    auto out = zeros(Shape(D));
-    ff.forward(in, out);
+    auto &out = ff.forward(in);
 
     float expected = 1.f / (1.f + std::exp(-1.f)); // silu(1) = 1 * sigmoid(1)
     EXPECT_NEAR(out.data()[0], expected, 1e-5f);
@@ -177,8 +170,6 @@ TEST(FeedForwardTest, KnownArithmetic) {
 // ── Attention ─────────────────────────────────────────────────────────────────
 
 TEST(AttentionTest, ZeroWeightsGivesZeroOutput) {
-    // wq=wk=wv=0 → q=k=0 (RoPE of 0 = 0), v=0
-    // softmax([0,...]) = uniform, weighted sum of v=0 → xb=0
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = zeros(Shape(KV_DIM, DIM));
@@ -186,8 +177,7 @@ TEST(AttentionTest, ZeroWeightsGivesZeroOutput) {
     attn.initializeLayer({{"wq.weight", wq}, {"wk.weight", wk}, {"wv.weight", wv}});
 
     auto in = filled(Shape(DIM), 2.f);
-    auto xb = zeros(Shape(DIM));
-    attn.forward(in, xb, 0);
+    auto &xb = attn.forward(in, 0);
 
     for (size_t i = 0; i < DIM; ++i)
         EXPECT_FLOAT_EQ(xb.data()[i], 0.f);
@@ -201,8 +191,7 @@ TEST(AttentionTest, OutputShapePreserved) {
     attn.initializeLayer({{"wq.weight", wq}, {"wk.weight", wk}, {"wv.weight", wv}});
 
     auto in = filled(Shape(DIM), 1.f);
-    auto xb = zeros(Shape(DIM));
-    attn.forward(in, xb, 0);
+    auto &xb = attn.forward(in, 0);
 
     EXPECT_EQ(xb.size(), DIM);
 }
@@ -210,7 +199,6 @@ TEST(AttentionTest, OutputShapePreserved) {
 TEST(AttentionTest, IdentityValueWeightPassthroughAtPos0) {
     // wq=wk=0, wv=I → q=k=0, v=in
     // At pos=0: softmax([0]) = [1.0], xb = 1.0 * v[0] = in
-    // RoPE at pos=0: cos(0)=1, sin(0)=0 → no rotation applied
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = eye(KV_DIM, DIM);
@@ -222,8 +210,7 @@ TEST(AttentionTest, IdentityValueWeightPassthroughAtPos0) {
     in.data()[1] = 2.f;
     in.data()[2] = 3.f;
     in.data()[3] = 4.f;
-    auto xb = zeros(Shape(DIM));
-    attn.forward(in, xb, 0);
+    auto &xb = attn.forward(in, 0);
 
     EXPECT_NEAR(xb.data()[0], 1.f, 1e-5f);
     EXPECT_NEAR(xb.data()[1], 2.f, 1e-5f);
@@ -232,10 +219,9 @@ TEST(AttentionTest, IdentityValueWeightPassthroughAtPos0) {
 }
 
 TEST(AttentionTest, KVCacheAccumulation) {
-    // wq=wk=0 → all attention scores = 0 → softmax = uniform
+    // wq=wk=0 → all scores = 0 → softmax = uniform
     // wv=I → v[t] = in_t
-    // At pos=0: xb = in0
-    // At pos=1: softmax([0,0]) = [0.5, 0.5], xb = 0.5*in0 + 0.5*in1
+    // At pos=1: softmax([0,0]) = [0.5,0.5], xb = 0.5*in0 + 0.5*in1
     auto wq = zeros(Shape(DIM, DIM));
     auto wk = zeros(Shape(KV_DIM, DIM));
     auto wv = eye(KV_DIM, DIM);
@@ -244,22 +230,17 @@ TEST(AttentionTest, KVCacheAccumulation) {
 
     auto in0 = filled(Shape(DIM), 2.f);
     auto in1 = filled(Shape(DIM), 4.f);
-    auto xb = zeros(Shape(DIM));
 
-    attn.forward(in0, xb, 0); // populate KV cache at pos=0
-    attn.forward(in1, xb, 1); // uniform attention over pos=0 and pos=1
+    attn.forward(in0, 0);
+    auto &xb = attn.forward(in1, 1);
 
-    // Expected: 0.5 * 2 + 0.5 * 4 = 3
     for (size_t i = 0; i < DIM; ++i)
         EXPECT_NEAR(xb.data()[i], 3.f, 1e-5f);
 }
 
 // ── TransformerBlock ──────────────────────────────────────────────────────────
 
-// Helper that builds a zero-weight TransformerBlock for reuse.
 static auto makeZeroBlock() {
-    // All-zero weights: rmsnorm outputs 0, so attn/FFN branches output 0,
-    // and the residual connections preserve x unchanged.
     static auto wq = zeros(Shape(DIM, DIM));
     static auto wk = zeros(Shape(KV_DIM, DIM));
     static auto wv = zeros(Shape(KV_DIM, DIM));
@@ -284,8 +265,7 @@ static auto makeZeroBlock() {
 }
 
 TEST(TransformerBlockTest, ZeroWeightsPreservesInputViaResidual) {
-    // rmsnorm(x, 0) = 0 → attn branch = 0 → wo @ 0 = 0 → x += 0
-    // rmsnorm(x, 0) = 0 → FFN branch = 0 → x += 0  → x unchanged
+    // rmsnorm(x, 0) = 0 → attn/FFN branches = 0 → residuals preserve x
     auto block = makeZeroBlock();
 
     auto x = zeros(Shape(DIM));
@@ -293,12 +273,12 @@ TEST(TransformerBlockTest, ZeroWeightsPreservesInputViaResidual) {
     x.data()[1] = 2.f;
     x.data()[2] = 3.f;
     x.data()[3] = 4.f;
-    block.forward(x, 0);
+    auto &out = block.forward(x, 0);
 
-    EXPECT_FLOAT_EQ(x.data()[0], 1.f);
-    EXPECT_FLOAT_EQ(x.data()[1], 2.f);
-    EXPECT_FLOAT_EQ(x.data()[2], 3.f);
-    EXPECT_FLOAT_EQ(x.data()[3], 4.f);
+    EXPECT_FLOAT_EQ(out.data()[0], 1.f);
+    EXPECT_FLOAT_EQ(out.data()[1], 2.f);
+    EXPECT_FLOAT_EQ(out.data()[2], 3.f);
+    EXPECT_FLOAT_EQ(out.data()[3], 4.f);
 }
 
 TEST(TransformerBlockTest, MultiStepForwardDoesNotCrash) {

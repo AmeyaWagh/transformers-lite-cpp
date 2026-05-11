@@ -69,7 +69,7 @@ class Shape {
      * @param args tensor indices
      * @return const size_t - offset of the element in the memory.
      */
-    template <typename... ARGS> auto operator()(size_t idx, ARGS... args) const -> const size_t {
+    template <typename... ARGS> [[nodiscard]] auto operator()(size_t idx, ARGS... args) const -> const size_t {
         assert(sizeof...(args) < m_shape.size());
         assert(idx < m_shape[(m_num_dims - 1 - sizeof...(ARGS))]);
         return idx * m_stride[(m_num_dims - 1 - sizeof...(ARGS))] + this->operator()(args...);
@@ -81,7 +81,7 @@ class Shape {
      * @param idx tensor index
      * @return const size_t - offset of the element in the memory.
      */
-    auto operator()(size_t idx) const -> const size_t {
+    [[nodiscard]] auto operator()(size_t idx) const -> const size_t {
         if (isScalar()) {
             assert(idx == 0);
             return 0;
@@ -96,7 +96,7 @@ class Shape {
      * @param idx dimension index
      * @return const size_t - shape of the given dimension.
      */
-    auto operator[](size_t idx) const -> const size_t { return m_shape.at(idx); }
+    [[nodiscard]] auto operator[](size_t idx) const -> const size_t { return m_shape.at(idx); }
 
     /**
      * @brief Get slice of multidimensional shape
@@ -106,7 +106,7 @@ class Shape {
      * @param args other indices of the shape dimension.
      * @return Shape sliced shape Shape[nDIM - 1 + sizeof...(args)]
      */
-    template <typename... ARGS> auto slice(size_t idx, ARGS... args) const -> Shape {
+    template <typename... ARGS> [[nodiscard]] auto slice(size_t idx, ARGS... args) const -> Shape {
         /**
          * Let Original shape of a tensor be Shape(2,3,5) stride = {15,5,1} nDIM=3 and names = (C,H,W)
          *
@@ -141,7 +141,7 @@ class Shape {
      * @param args other indices of the shape dimension.
      * @return size_t - offset value from the beginning of the original tensor.
      */
-    template <typename... ARGS> auto offset(size_t idx, ARGS... args) const -> size_t {
+    template <typename... ARGS> [[nodiscard]] auto offset(size_t idx, ARGS... args) const -> size_t {
         /**
          * Lets take the same example
          * Let Original shape of a tensor be Shape(2,3,5) stride = {15,5,1} nDIM=3
@@ -173,9 +173,9 @@ class Shape {
      *
      * @return size_t total element count
      */
-    auto size() const -> const size_t {
-        if (m_shape.empty()) {
-            return 0;
+    [[nodiscard]] auto size() const -> const size_t {
+        if (isScalar()) {
+            return 1;
         }
         return m_shape[0] * m_stride[0];
     }
@@ -185,14 +185,14 @@ class Shape {
      *
      * @return size_t dimension count
      */
-    auto numDims() const -> const size_t { return m_num_dims; }
+    [[nodiscard]] auto numDims() const -> const size_t { return m_num_dims; }
 
     /**
      * @brief Total number of elements (same as size, but returns 1 for scalars).
      *
      * @return size_t element count
      */
-    auto numElements() const -> const size_t {
+    [[nodiscard]] auto numElements() const -> const size_t {
         if (isScalar()) {
             return 1UL;
         }
@@ -202,13 +202,13 @@ class Shape {
     }
 
     /** @brief Get the dimension sizes as a vector. */
-    auto shapeVec() const -> const std::vector<size_t> { return m_shape; }
+    [[nodiscard]] auto shapeVec() const -> const std::vector<size_t> { return m_shape; }
 
     /** @brief Get the stride values as a vector. */
-    auto strideVec() const -> const std::vector<size_t> { return m_stride; }
+    [[nodiscard]] auto strideVec() const -> const std::vector<size_t> { return m_stride; }
 
     /** @brief Get the dimension names as a vector. */
-    auto getNamesVec() const -> const std::vector<std::string> { return m_dim_names; }
+    [[nodiscard]] auto getNamesVec() const -> const std::vector<std::string> { return m_dim_names; }
 
     /**
      * @brief Equality comparison between two shapes.
@@ -216,7 +216,7 @@ class Shape {
      * @param other shape to compare against
      * @return true if both shapes have the same dimensions and sizes
      */
-    bool operator==(Shape const &other) const {
+    [[nodiscard]] bool operator==(Shape const &other) const {
         bool check = true;
         check &= other.numDims() == this->numDims();
         check &= other.isScalar() == this->isScalar();
@@ -230,10 +230,10 @@ class Shape {
     };
 
     /** @brief Check if the tensor memory layout is contiguous. Always true for now. */
-    bool isContiguous() const { return true; }
+    [[nodiscard]] bool isContiguous() const { return true; }
 
     /** @brief Check if this shape represents a scalar (0 dimensions). */
-    bool isScalar() const { return m_num_dims == 0; }
+    [[nodiscard]] bool isScalar() const { return m_num_dims == 0; }
 
  private:
     /**
@@ -393,7 +393,7 @@ template <class T> class TensorView {
      * @param args remaining dimension indices
      * @return TensorView<T> a view into the sliced region
      */
-    template <typename... ARGS> auto slice(size_t idx, ARGS... args) -> TensorView<T> {
+    template <typename... ARGS> [[nodiscard]] auto slice(size_t idx, ARGS... args) -> TensorView<T> {
         pointer begin = data();
         size_t offset = m_shape.offset(idx, args...);
         Shape new_shape = m_shape.slice(idx, args...);
@@ -412,16 +412,16 @@ template <class T> class TensorView {
      * @param shape new shape (must have the same number of elements)
      * @return TensorView<T> reshaped view
      */
-    auto view(const Shape &shape) {
+    [[nodiscard]] auto view(const Shape &shape) {
         assert(m_shape.numElements() == shape.numElements());
         return TensorView(this->data(), shape);
     }
 
     /** @brief Get the shape of this tensor view. */
-    auto shape() const -> const Shape & { return m_shape; }
+    [[nodiscard]] auto shape() const -> const Shape & { return m_shape; }
 
     /** @brief Get the total number of elements. */
-    auto size() const -> const size_t { return m_shape.size(); }
+    [[nodiscard]] auto size() const -> const size_t { return m_shape.size(); }
 
     /**
      * @brief Set a new shape for this view.
@@ -431,10 +431,10 @@ template <class T> class TensorView {
     auto setShape(const Shape &shape) { m_shape = shape; }
 
     /** @brief Get a const pointer to the underlying data. */
-    auto data() const -> const_pointer { return m_data; }
+    [[nodiscard]] auto data() const -> const_pointer { return m_data; }
 
     /** @brief Get a mutable pointer to the underlying data. */
-    auto data() -> pointer { return m_data; }
+    [[nodiscard]] auto data() -> pointer { return m_data; }
 
     /**
      * @brief Set the underlying data pointer.
@@ -444,17 +444,66 @@ template <class T> class TensorView {
     auto setData(pointer p) { m_data = p; }
 
     /** @brief Get the total number of elements. */
-    auto numElements() const -> const size_t { return m_shape.numElements(); }
+    [[nodiscard]] auto numElements() const -> const size_t { return m_shape.numElements(); }
 
     /** @brief Get the total size in bytes. */
-    auto numBytes() const -> const size_t { return numElements() * sizeof(value_type); }
+    [[nodiscard]] auto numBytes() const -> const size_t { return numElements() * sizeof(value_type); }
 
     /** @brief Check if the tensor memory layout is contiguous. */
-    auto isContiguous() -> bool { return m_shape.isContiguous(); }
+    [[nodiscard]] auto isContiguous() -> bool { return m_shape.isContiguous(); }
+
+    /**
+     * @brief Extract the scalar value from a rank-0 view.
+     *
+     * @return T the stored scalar
+     */
+    [[nodiscard]] value_type item() const {
+        assert(m_shape.isScalar());
+        return (*this)[0];
+    }
+
+    TensorView &operator+=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] += val;
+        return *this;
+    }
+
+    TensorView &operator-=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] -= val;
+        return *this;
+    }
+
+    TensorView &operator*=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] *= val;
+        return *this;
+    }
+
+    TensorView &operator/=(value_type val) {
+        for (size_t i = 0; i < size(); ++i)
+            (*this)[i] /= val;
+        return *this;
+    }
 
  private:
     pointer m_data;
     Shape m_shape;
+};
+
+/**
+ * @brief Concept satisfied by any lazy expression that can be evaluated into a
+ * Tensor<COMPUTE, T>. An expression must expose:
+ *   - outputShape() -> Shape  (determines allocation size)
+ *   - evalInto(TensorView<T>&) -> void  (writes the result)
+ *
+ * Used by Tensor::operator=(const E&) to accept expression templates while
+ * rejecting arbitrary types with a clear error at the call site.
+ */
+template <typename E, template <class> class COMPUTE, typename T>
+concept TensorExpr = requires(const E &expr, TensorView<T> &out) {
+    { expr.outputShape() } -> std::convertible_to<Shape>;
+    { expr.evalInto(out) } -> std::same_as<void>;
 };
 
 /**
@@ -498,6 +547,36 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
     Tensor &operator=(TensorView<T> view) {
         this->setShape(view.shape());
         this->setData(view.data());
+        return *this;
+    }
+
+    /**
+     * @brief Assign a scalar value, reshaping to size-1.
+     *
+     * @param val the scalar value to assign
+     */
+    Tensor &operator=(value_type val) {
+        reShape(Shape());
+        (*this)[0] = val;
+        return *this;
+    }
+
+    /**
+     * @brief Evaluate a lazy expression into this tensor.
+     *
+     * Allocates (or re-allocates) only when the output shape changes; subsequent
+     * calls with the same shape are allocation-free — just computation.
+     * COMPUTE is checked at the call site via the requires clause, so the
+     * right backend kernel is always selected.
+     *
+     * @param expr expression with outputShape() and evalInto(Tensor<COMPUTE,T>&)
+     */
+    template <typename E>
+    requires TensorExpr<E, COMPUTE, T> Tensor &operator=(const E &expr) {
+        if (this->shape() != expr.outputShape()) {
+            reShape(expr.outputShape());
+        }
+        expr.evalInto(*this);
         return *this;
     }
     /**
@@ -544,6 +623,16 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
     Tensor(const Shape &shape, std::vector<value_type> &values) : TensorView<T>(nullptr, shape), m_memory(values) { this->setData(m_memory.data()); }
 
     /**
+     * @brief Construct a scalar Tensor holding a single value.
+     *
+     * @param val the scalar value to store
+     */
+    Tensor(value_type val) : TensorView<T>(nullptr, Shape()), m_memory(1) {
+        this->setData(m_memory.data());
+        (*this)[0] = val;
+    }
+
+    /**
      * @brief Reshape the tensor, reallocating memory if needed.
      *
      * @param shape new shape
@@ -560,14 +649,14 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
      * @param p source pointer
      * @param num_elements number of elements to copy
      */
-    void copyFrom(const pointer p, size_t num_elements) { m_memory.copyFrom(p, num_elements); }
+    void copyFrom(const pointer src, size_t numElements) { m_memory.copyFrom(src, numElements); }
 
     /**
      * @brief Copy data and shape from a TensorView into this tensor.
      *
      * @param tensor source tensor view
      */
-    void copyFrom(TensorView<value_type> &tensor) {
+    void copyFrom(const TensorView<value_type> &tensor) {
         m_memory.copyFrom(tensor.data(), tensor.size());
         this->setShape(tensor.shape());
     }

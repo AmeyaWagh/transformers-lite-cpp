@@ -25,13 +25,10 @@ TEST(MatmulCPU, SquareMatrix) {
     auto x = makeTensor({1.f, 1.f});
     Tensor<CPU, float> out(Shape(2));
 
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    matmul(outv, xv, wv);
+    out = matmul(x, w);
 
-    EXPECT_FLOAT_EQ(outv(0), 3.f);
-    EXPECT_FLOAT_EQ(outv(1), 7.f);
+    EXPECT_FLOAT_EQ(out(0), 3.f);
+    EXPECT_FLOAT_EQ(out(1), 7.f);
 }
 
 TEST(MatmulCPU, RectangularMatrix) {
@@ -47,13 +44,10 @@ TEST(MatmulCPU, RectangularMatrix) {
     auto x = makeTensor({1.f, 1.f, 1.f});
     Tensor<CPU, float> out(Shape(2));
 
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    matmul(outv, xv, wv);
+    out = matmul(x, w);
 
-    EXPECT_FLOAT_EQ(outv(0), 6.f);
-    EXPECT_FLOAT_EQ(outv(1), 15.f);
+    EXPECT_FLOAT_EQ(out(0), 6.f);
+    EXPECT_FLOAT_EQ(out(1), 15.f);
 }
 
 TEST(MatmulCPU, ZeroVector) {
@@ -65,105 +59,10 @@ TEST(MatmulCPU, ZeroVector) {
     auto x = makeTensor({0.f, 0.f});
     Tensor<CPU, float> out(Shape(2));
 
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    matmul(outv, xv, wv);
+    out = matmul(x, w);
 
-    EXPECT_FLOAT_EQ(outv(0), 0.f);
-    EXPECT_FLOAT_EQ(outv(1), 0.f);
-}
-
-// ── rmsnorm ──────────────────────────────────────────────────────────────────
-
-TEST(RmsNormCPU, UnitWeights) {
-    // rms([1,2,3,4]) = sqrt((1+4+9+16)/4) = sqrt(7.5)
-    // out[i] = x[i] / rms(x)  (weights all 1)
-    auto x = makeTensor({1.f, 2.f, 3.f, 4.f});
-    auto w = makeTensor({1.f, 1.f, 1.f, 1.f});
-    Tensor<CPU, float> out(Shape(4));
-
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    rmsnorm(outv, xv, wv);
-
-    float rms = 1.f / sqrtf(7.5f + 1e-5f);
-    EXPECT_NEAR(outv(0), 1.f * rms, 1e-5f);
-    EXPECT_NEAR(outv(1), 2.f * rms, 1e-5f);
-    EXPECT_NEAR(outv(2), 3.f * rms, 1e-5f);
-    EXPECT_NEAR(outv(3), 4.f * rms, 1e-5f);
-}
-
-TEST(RmsNormCPU, ScaledWeights) {
-    auto x = makeTensor({1.f, 1.f, 1.f, 1.f});
-    auto w = makeTensor({2.f, 2.f, 2.f, 2.f});
-    Tensor<CPU, float> out(Shape(4));
-
-    TensorView<float> xv(x.data(), x.shape());
-    TensorView<float> wv(w.data(), w.shape());
-    TensorView<float> outv(out.data(), out.shape());
-    rmsnorm(outv, xv, wv);
-
-    // rms([1,1,1,1]) = 1, so out = 2 * 1 * x[i] = 2
-    EXPECT_NEAR(outv(0), 2.f, 1e-4f);
-    EXPECT_NEAR(outv(1), 2.f, 1e-4f);
-}
-
-// ── softmax ──────────────────────────────────────────────────────────────────
-
-TEST(SoftmaxCPU, SumsToOne) {
-    auto x = makeTensor({1.f, 2.f, 3.f});
-    TensorView<float> xv(x.data(), x.shape());
-    softmax(xv);
-
-    float sum = xv(0) + xv(1) + xv(2);
-    EXPECT_NEAR(sum, 1.f, 1e-6f);
-}
-
-TEST(SoftmaxCPU, MaxElementDominates) {
-    auto x = makeTensor({0.f, 0.f, 100.f});
-    TensorView<float> xv(x.data(), x.shape());
-    softmax(xv);
-
-    EXPECT_NEAR(xv(2), 1.f, 1e-5f);
-}
-
-TEST(SoftmaxCPU, PartialN) {
-    // Apply softmax only to first 2 elements; third unchanged
-    auto x = makeTensor({1.f, 2.f, 999.f});
-    TensorView<float> xv(x.data(), x.shape());
-    softmax(xv, 2);
-
-    float sum = xv(0) + xv(1);
-    EXPECT_NEAR(sum, 1.f, 1e-6f);
-}
-
-// ── silu ─────────────────────────────────────────────────────────────────────
-
-TEST(SiluCPU, ZeroIsZero) {
-    auto x = makeTensor({0.f});
-    TensorView<float> xv(x.data(), x.shape());
-    silu_inpl(xv);
-    EXPECT_FLOAT_EQ(xv(0), 0.f);
-}
-
-TEST(SiluCPU, PositiveInput) {
-    // silu(1) = 1 * sigmoid(1) = 1 / (1 + exp(-1))
-    auto x = makeTensor({1.f});
-    TensorView<float> xv(x.data(), x.shape());
-    silu_inpl(xv);
-    float expected = 1.f / (1.f + expf(-1.f));
-    EXPECT_NEAR(xv(0), expected, 1e-6f);
-}
-
-TEST(SiluCPU, NegativeInput) {
-    // silu(-1) = -1 * sigmoid(-1)
-    auto x = makeTensor({-1.f});
-    TensorView<float> xv(x.data(), x.shape());
-    silu_inpl(xv);
-    float expected = -1.f * (1.f / (1.f + expf(1.f)));
-    EXPECT_NEAR(xv(0), expected, 1e-6f);
+    EXPECT_FLOAT_EQ(out(0), 0.f);
+    EXPECT_FLOAT_EQ(out(1), 0.f);
 }
 
 // ── add ───────────────────────────────────────────────────────────────────────
@@ -173,14 +72,11 @@ TEST(AddCPU, ElementWise) {
     auto b = makeTensor({4.f, 5.f, 6.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    add(rv, av, bv);
+    result = a + b;
 
-    EXPECT_FLOAT_EQ(rv(0), 5.f);
-    EXPECT_FLOAT_EQ(rv(1), 7.f);
-    EXPECT_FLOAT_EQ(rv(2), 9.f);
+    EXPECT_FLOAT_EQ(result(0), 5.f);
+    EXPECT_FLOAT_EQ(result(1), 7.f);
+    EXPECT_FLOAT_EQ(result(2), 9.f);
 }
 
 TEST(AddCPU, ZeroTensor) {
@@ -188,14 +84,11 @@ TEST(AddCPU, ZeroTensor) {
     auto b = makeTensor({0.f, 0.f, 0.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    add(rv, av, bv);
+    result = a + b;
 
-    EXPECT_FLOAT_EQ(rv(0), 1.f);
-    EXPECT_FLOAT_EQ(rv(1), 2.f);
-    EXPECT_FLOAT_EQ(rv(2), 3.f);
+    EXPECT_FLOAT_EQ(result(0), 1.f);
+    EXPECT_FLOAT_EQ(result(1), 2.f);
+    EXPECT_FLOAT_EQ(result(2), 3.f);
 }
 
 // ── hadamard_prod ─────────────────────────────────────────────────────────────
@@ -205,14 +98,11 @@ TEST(HadamardProdCPU, ElementWise) {
     auto b = makeTensor({4.f, 5.f, 6.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    hadamard_prod(rv, av, bv);
+    result = a * b;
 
-    EXPECT_FLOAT_EQ(rv(0), 4.f);
-    EXPECT_FLOAT_EQ(rv(1), 10.f);
-    EXPECT_FLOAT_EQ(rv(2), 18.f);
+    EXPECT_FLOAT_EQ(result(0), 4.f);
+    EXPECT_FLOAT_EQ(result(1), 10.f);
+    EXPECT_FLOAT_EQ(result(2), 18.f);
 }
 
 TEST(HadamardProdCPU, WithZero) {
@@ -220,65 +110,100 @@ TEST(HadamardProdCPU, WithZero) {
     auto b = makeTensor({0.f, 0.f, 0.f});
     Tensor<CPU, float> result(Shape(3));
 
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-    TensorView<float> rv(result.data(), result.shape());
-    hadamard_prod(rv, av, bv);
+    result = a * b;
 
-    EXPECT_FLOAT_EQ(rv(0), 0.f);
-    EXPECT_FLOAT_EQ(rv(1), 0.f);
-    EXPECT_FLOAT_EQ(rv(2), 0.f);
+    EXPECT_FLOAT_EQ(result(0), 0.f);
+    EXPECT_FLOAT_EQ(result(1), 0.f);
+    EXPECT_FLOAT_EQ(result(2), 0.f);
 }
 
-// ── dot_prod ──────────────────────────────────────────────────────────────────
+// ── silu ─────────────────────────────────────────────────────────────────────
 
-TEST(DotProdCPU, Basic) {
-    // [1,2,3] · [4,5,6] = 4 + 10 + 18 = 32
-    auto a = makeTensor({1.f, 2.f, 3.f});
-    auto b = makeTensor({4.f, 5.f, 6.f});
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-
-    EXPECT_FLOAT_EQ(dot_prod(av, bv), 32.f);
+TEST(SiluCPU, ZeroIsZero) {
+    auto x = makeTensor({0.f});
+    x = silu(x);
+    EXPECT_FLOAT_EQ(x[0], 0.f);
 }
 
-TEST(DotProdCPU, Orthogonal) {
-    auto a = makeTensor({1.f, 0.f});
-    auto b = makeTensor({0.f, 1.f});
-    TensorView<float> av(a.data(), a.shape());
-    TensorView<float> bv(b.data(), b.shape());
-
-    EXPECT_FLOAT_EQ(dot_prod(av, bv), 0.f);
+TEST(SiluCPU, PositiveInput) {
+    // silu(1) = 1 * sigmoid(1) = 1 / (1 + exp(-1))
+    auto x = makeTensor({1.f});
+    x = silu(x);
+    EXPECT_NEAR(x[0], 1.f / (1.f + std::exp(-1.f)), 1e-6f);
 }
 
-// ── argmax ────────────────────────────────────────────────────────────────────
-
-TEST(ArgmaxCPU, MaxAtEnd) {
-    auto x = makeTensor({1.f, 2.f, 3.f, 4.f, 5.f});
-    TensorView<float> xv(x.data(), x.shape());
-    EXPECT_EQ(argmax(xv), 4UL);
+TEST(SiluCPU, NegativeInput) {
+    // silu(-1) = -1 * sigmoid(-1)
+    auto x = makeTensor({-1.f});
+    x = silu(x);
+    EXPECT_NEAR(x[0], -1.f / (1.f + std::exp(1.f)), 1e-6f);
 }
 
-TEST(ArgmaxCPU, MaxAtStart) {
-    auto x = makeTensor({9.f, 1.f, 2.f, 3.f});
-    TensorView<float> xv(x.data(), x.shape());
-    EXPECT_EQ(argmax(xv), 0UL);
+TEST(SiluCPU, MultiElement) {
+    auto x = makeTensor({0.f, 1.f, -1.f, 2.f});
+    x = silu(x);
+    EXPECT_NEAR(x[0], 0.f, 1e-6f);
+    EXPECT_NEAR(x[1], 1.f / (1.f + std::exp(-1.f)), 1e-6f);
+    EXPECT_NEAR(x[2], -1.f / (1.f + std::exp(1.f)), 1e-6f);
+    EXPECT_NEAR(x[3], 2.f / (1.f + std::exp(-2.f)), 1e-6f);
 }
 
-TEST(ArgmaxCPU, MaxInMiddle) {
-    auto x = makeTensor({1.f, 5.f, 3.f, 2.f, 4.f});
-    TensorView<float> xv(x.data(), x.shape());
-    EXPECT_EQ(argmax(xv), 1UL);
+// ── rope ─────────────────────────────────────────────────────────────────────
+
+TEST(RopeCPU, ZeroPosIsIdentity) {
+    // At pos=0: theta=0 -> cos=1, sin=0 -> rotation is identity
+    auto q = makeTensor({1.f, 2.f, 3.f, 4.f});
+    auto k = makeTensor({5.f, 6.f, 7.f, 8.f});
+    q = rope(q, k, 0, 2);
+    EXPECT_NEAR(q[0], 1.f, 1e-6f);
+    EXPECT_NEAR(q[1], 2.f, 1e-6f);
+    EXPECT_NEAR(q[2], 3.f, 1e-6f);
+    EXPECT_NEAR(q[3], 4.f, 1e-6f);
+    EXPECT_NEAR(k[0], 5.f, 1e-6f);
+    EXPECT_NEAR(k[1], 6.f, 1e-6f);
 }
 
-// ── setZero ───────────────────────────────────────────────────────────────────
+TEST(RopeCPU, MatchesScalarReference) {
+    // Reference: apply rotation manually for pos=3, head_size=4
+    const int pos = 3;
+    const size_t head_size = 4;
+    auto q = makeTensor({1.f, 0.f, 0.f, 1.f});
+    auto k = makeTensor({1.f, 0.f, 0.f, 1.f});
 
-TEST(SetZeroCPU, ZeroesAllElements) {
-    auto x = makeTensor({1.f, 2.f, 3.f, 4.f});
-    TensorView<float> xv(x.data(), x.shape());
-    setZero(xv);
+    auto ref_rotate = [&](float v0, float v1, size_t head_dim) -> std::pair<float, float> {
+        float freq = 1.f / std::pow(10000.f, head_dim / static_cast<float>(head_size));
+        float theta = pos * freq;
+        return {v0 * std::cos(theta) - v1 * std::sin(theta), v0 * std::sin(theta) + v1 * std::cos(theta)};
+    };
 
-    for (size_t i = 0; i < xv.size(); ++i) {
-        EXPECT_FLOAT_EQ(xv[i], 0.f);
-    }
+    auto [q0, q1] = ref_rotate(1.f, 0.f, 0);
+    auto [q2, q3] = ref_rotate(0.f, 1.f, 2);
+    auto [k0, k1] = ref_rotate(1.f, 0.f, 0);
+
+    q = rope(q, k, pos, head_size);
+
+    EXPECT_NEAR(q[0], q0, 1e-5f);
+    EXPECT_NEAR(q[1], q1, 1e-5f);
+    EXPECT_NEAR(q[2], q2, 1e-5f);
+    EXPECT_NEAR(q[3], q3, 1e-5f);
+    EXPECT_NEAR(k[0], k0, 1e-5f);
+    EXPECT_NEAR(k[1], k1, 1e-5f);
+}
+
+TEST(RopeCPU, KRotatedAsKVDimSideEffect) {
+    // k is rotated in-place as a side effect; original q tensor also picks up the rotation
+    const int pos = 1;
+    const size_t head_size = 2;
+    auto q = makeTensor({1.f, 0.f});
+    auto k = makeTensor({0.f, 1.f});
+
+    float freq = 1.f / std::pow(10000.f, 0.f / 2.f); // head_dim=0
+    float theta = pos * freq;                        // = 1.0
+    float expected_k0 = 0.f * std::cos(theta) - 1.f * std::sin(theta);
+    float expected_k1 = 0.f * std::sin(theta) + 1.f * std::cos(theta);
+
+    q = rope(q, k, pos, head_size);
+
+    EXPECT_NEAR(k[0], expected_k0, 1e-5f);
+    EXPECT_NEAR(k[1], expected_k1, 1e-5f);
 }

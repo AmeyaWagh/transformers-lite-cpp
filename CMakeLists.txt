@@ -42,7 +42,6 @@ if(ENABLE_CUDA)
 endif()
 
 if(ENABLE_AVX512)
-    target_compile_definitions(transformers_lite INTERFACE TRANSFORMERS_AVX512_ENABLED)
     target_compile_options(transformers_lite INTERFACE -mavx512f)
 endif()
 

@@ -1,12 +1,8 @@
 #pragma once
-#include <cmath>
-#include <string>
-#include <unordered_map>
 
 #include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
-#include "../core/types.hpp"
 #include "layer.hpp"
 
 namespace transformers_lite {
@@ -28,118 +24,68 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
     /**
      * @brief Construct an Attention layer from dimensions only; call initializeLayer before forward.
      *
-     * @param kv_dim key/value cache dimension per position
+     * @param kvDim key/value cache dimension per position
      * @param dim transformer model dimension
-     * @param n_heads number of query heads
-     * @param kv_heads number of key/value heads
-     * @param seq_len maximum sequence length
+     * @param nHeads number of query heads
+     * @param kvHeads number of key/value heads
+     * @param seqLen maximum sequence length
      */
-    explicit Attention(size_t kv_dim, size_t dim, size_t n_heads, size_t kv_heads, size_t seq_len)
-        : m_key_cache(Shape(seq_len * kv_dim)), m_value_cache(Shape(seq_len * kv_dim)), m_q(Shape(dim)), m_att(Shape(n_heads, seq_len)), m_kv_dim(kv_dim),
-          m_dim(dim), m_n_heads(n_heads), m_kv_heads(kv_heads), m_head_size(dim / n_heads), m_seq_len(seq_len) {}
+    explicit Attention(size_t kvDim, size_t dim, size_t nHeads, size_t kvHeads, size_t seqLen)
+        : m_key_cache(Shape(seqLen * kvDim)), m_value_cache(Shape(seqLen * kvDim)), m_q(Shape(dim)), m_att(Shape(nHeads, seqLen)), m_out(Shape(dim)),
+          m_kv_dim(kvDim), m_dim(dim), m_n_heads(nHeads), m_kv_heads(kvHeads), m_head_size(dim / nHeads), m_seq_len(seqLen) {}
 
     /**
      * @brief Bind weight views from a state dict.
      *
-     * Expected keys: "wq", "wk", "wv".
+     * Expected keys: "wq.weight", "wk.weight", "wv.weight".
      *
-     * @param state_dict map of weight name to tensor view
+     * @param stateDict map of weight name to tensor view
      */
-    void initializeLayer(const StateDict<value_type> &sd) {
-        m_wq = sd.at("wq.weight");
-        m_wk = sd.at("wk.weight");
-        m_wv = sd.at("wv.weight");
+    void initializeLayer(const StateDict<value_type> &stateDict) {
+        m_wq = stateDict.at("wq.weight");
+        m_wk = stateDict.at("wk.weight");
+        m_wv = stateDict.at("wv.weight");
     }
 
     /**
      * @brief Run the attention forward pass for a single position.
      *
      * Computes QKV projections, applies RoPE, performs multi-head attention
-     * with cached keys/values, and writes the result to xb.
+     * with cached keys/values.
      *
-     * @param in input tensor (dim)
-     * @param xb output tensor (dim)
-     * @param pos_ current sequence position
+     * @param input input tensor (dim,)
+     * @param pos current sequence position
+     * @return reference to the layer-owned output buffer (dim,)
      */
-    void forward(Tensor<COMPUTE, value_type> &in, Tensor<COMPUTE, value_type> &xb, int pos_) {
-        // key and value point to the kv cache
-        // Note kv_cache is (seq_len*kv_dim) i.e (seq_len*(dim*n_kv_heads/n_heads))
-        TensorView<value_type> k = m_key_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_);
-        TensorView<value_type> v = m_value_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos_);
+    Tensor<COMPUTE, value_type> &forward(const Tensor<COMPUTE, value_type> &input, int pos) {
+        Tensor<COMPUTE, value_type> keyCur(m_key_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos));
+        Tensor<COMPUTE, value_type> valCur(m_value_cache.view(Shape(m_seq_len, m_kv_dim)).slice(pos));
 
-        // qkv matmuls for this position
-        matmul(m_q, in, m_wq);
-        matmul(k, in, m_wk);
-        matmul(v, in, m_wv);
+        m_q = matmul(input, m_wq);
+        keyCur = matmul(input, m_wk);
+        valCur = matmul(input, m_wv);
 
-        // RoPE relative positional encoding: complex-valued rotate q and k in each head
-        rope(m_q, k, pos_, m_head_size);
+        m_q = rope(m_q, keyCur, pos, m_head_size);
 
-        // multihead attention. iterate over all heads
-        size_t kv_mul = m_n_heads / m_kv_heads;
-        size_t h;
-#pragma omp parallel for private(h)
-        for (h = 0; h < m_n_heads; h++) {
-            // get the query vector for this head
-            TensorView<value_type> q_ = m_q.view(Shape(m_n_heads, m_head_size)).slice(h);
-
-            // attention scores for this head
-            TensorView<value_type> att_ = m_att.slice(h);
-
-            // iterate over all timesteps, including the current one
-            for (size_t t = 0; t <= static_cast<size_t>(pos_); t++) {
-                // get the key vector for this head and at this timestep
-                // head_size = (dim / n_heads)
-                // kv_cache is (seq_len * kv_dim)
-                //          -> (seq_len * (dim * n_kv_heads / n_heads))
-                //          -> (seq_len*n_kv_heads, dim/n_heads)
-                //          -> (seq_len*n_kv_heads, head_size)
-                // offset = t * m_kv_dim + (h / kv_mul)
-                //          -> t * (dim * n_kv_heads / n_heads) + h * n_kv_heads / n_heads
-                //          -> (t * dim + h)*(n_kv_heads / n_heads)
-                TensorView<value_type> k_(m_key_cache.data() + t * m_kv_dim + (h / kv_mul) * m_head_size, Shape(m_head_size));
-                // calculate the attention score as the dot product of q and k
-                value_type score = dot_prod(q_, k_);
-                score /= sqrtf(m_head_size);
-                // save the score to the attention buffer
-                att_(t) = score;
-            }
-
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att_, pos_ + 1);
-
-            // weighted sum of the values, store back into xb
-            // view xb of shape (dim) as (n_heads * head_size)
-            TensorView<value_type> xb_ = xb.view(Shape(m_n_heads, m_head_size)).slice(h);
-
-            setZero(xb_);
-            for (size_t t = 0; t <= static_cast<size_t>(pos_); t++) {
-                // get the value vector for this head and at this timestep
-                TensorView<value_type> v_(m_value_cache.data() + t * m_kv_dim + (h / kv_mul) * m_head_size, Shape(m_head_size));
-                // get the attention weight for this timestep
-                value_type a = att_[t];
-                // accumulate the weighted value into xb
-                for (size_t i = 0; i < m_head_size; i++) {
-                    xb_(i) += a * v_(i);
-                }
-            }
-        }
+        m_out = scaledDotProductAttention(m_q, m_key_cache, m_value_cache, m_att, pos, m_n_heads, m_kv_heads, m_head_size, m_kv_dim, m_seq_len);
+        return m_out;
     }
 
  private:
-    Tensor<COMPUTE, value_type> m_wq;          // query (dim, n_heads * head_size)
-    Tensor<COMPUTE, value_type> m_wk;          // key (dim, kv_dim * head_size)
-    Tensor<COMPUTE, value_type> m_wv;          // value (dim, kv_dim * head_size)
-    Tensor<COMPUTE, value_type> m_key_cache;   // key cache (seq_len * kv_dim)
-    Tensor<COMPUTE, value_type> m_value_cache; // value cache (seq_len * kv_dim)
-    Tensor<COMPUTE, value_type> m_q;           // query tensor (dim)
-    Tensor<COMPUTE, value_type> m_att;         // attention tensor (n_heads * seq_len)
-    size_t m_kv_dim;                           // key value cache dimension ((dim * n_kv_heads) / n_heads)
-    size_t m_dim;                              // transformer dimension
-    size_t m_n_heads;                          // number of heads
-    size_t m_kv_heads;                         // number of key/value heads (can be < query heads because of multiquery)
-    size_t m_head_size;                        // (dim / n_heads)
-    size_t m_seq_len;                          // max sequence length
+    Tensor<COMPUTE, value_type> m_wq;          // (dim, n_heads * head_size)
+    Tensor<COMPUTE, value_type> m_wk;          // (dim, kv_dim)
+    Tensor<COMPUTE, value_type> m_wv;          // (dim, kv_dim)
+    Tensor<COMPUTE, value_type> m_key_cache;   // (seq_len * kv_dim)
+    Tensor<COMPUTE, value_type> m_value_cache; // (seq_len * kv_dim)
+    Tensor<COMPUTE, value_type> m_q;           // (dim,)
+    Tensor<COMPUTE, value_type> m_att;         // (n_heads, seq_len)
+    Tensor<COMPUTE, value_type> m_out;         // (dim,) — pre-allocated at construction
+    size_t m_kv_dim;
+    size_t m_dim;
+    size_t m_n_heads;
+    size_t m_kv_heads;
+    size_t m_head_size;
+    size_t m_seq_len;
 };
 
 } // namespace transformers_lite
