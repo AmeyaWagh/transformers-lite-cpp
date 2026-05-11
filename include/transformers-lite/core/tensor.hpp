@@ -492,6 +492,21 @@ template <class T> class TensorView {
 };
 
 /**
+ * @brief Concept satisfied by any lazy expression that can be evaluated into a
+ * Tensor<COMPUTE, T>. An expression must expose:
+ *   - outputShape() -> Shape  (determines allocation size)
+ *   - evalInto(TensorView<T>&) -> void  (writes the result)
+ *
+ * Used by Tensor::operator=(const E&) to accept expression templates while
+ * rejecting arbitrary types with a clear error at the call site.
+ */
+template <typename E, template <class> class COMPUTE, typename T>
+concept TensorExpr = requires(const E &expr, TensorView<T> &out) {
+    { expr.outputShape() } -> std::convertible_to<Shape>;
+    { expr.evalInto(out) } -> std::same_as<void>;
+};
+
+/**
  * @brief N Dimensional tensor.
  *
  * @tparam COMPUTE device on which the tensor memory is stored.
@@ -556,11 +571,8 @@ template <template <class> class COMPUTE, class T> class Tensor : public TensorV
      *
      * @param expr expression with outputShape() and evalInto(Tensor<COMPUTE,T>&)
      */
-    template <typename E> Tensor &operator=(const E &expr) requires requires(const E &e, Tensor<COMPUTE, T> &out) {
-        { e.outputShape() } -> std::convertible_to<Shape>;
-        { e.evalInto(out) } -> std::same_as<void>;
-    }
-    {
+    template <typename E>
+    requires TensorExpr<E, COMPUTE, T> Tensor &operator=(const E &expr) {
         if (this->shape() != expr.outputShape()) {
             reShape(expr.outputShape());
         }

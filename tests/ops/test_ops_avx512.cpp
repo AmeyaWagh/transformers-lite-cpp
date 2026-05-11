@@ -7,7 +7,7 @@ using namespace transformers_lite;
 
 #ifdef __AVX512F__
 #include <cmath>
-#include <transformers-lite/core/compute/avx512.hpp>
+#include <transformers-lite/core/ops/avx512_ops.hpp>
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

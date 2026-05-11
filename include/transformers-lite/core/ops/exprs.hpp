@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "../tensor.hpp"
+#include "ops_dispatch.hpp"
 
 namespace transformers_lite {
 
@@ -14,7 +15,9 @@ template <template <class> class COMPUTE, typename T> struct MatMulExpr {
 
     [[nodiscard]] Shape outputShape() const { return Shape{w.shape()[0]}; }
 
-    void evalInto(TensorView<T> &out) const { COMPUTE<T>::matmul(out.data(), x.data(), w.data(), static_cast<int>(x.size()), static_cast<int>(out.size())); }
+    void evalInto(TensorView<T> &out) const {
+        Ops<COMPUTE, T>::matmul(out.data(), x.data(), w.data(), static_cast<int>(x.size()), static_cast<int>(out.size()));
+    }
 };
 
 // ── RMSNormExpr ───────────────────────────────────────────────────────────────
@@ -28,12 +31,12 @@ template <template <class> class COMPUTE, typename T> struct RMSNormExpr {
 
     void evalInto(TensorView<T> &out) const {
         const size_t n = x.size();
-        Tensor<COMPUTE, T> ss = COMPUTE<T>::dot(x.data(), x.data(), n);
+        T ss = Ops<COMPUTE, T>::dot(x.data(), x.data(), n);
         ss /= static_cast<T>(n);
         ss += static_cast<T>(1e-5);
-        ss = static_cast<T>(1) / std::sqrt(ss.item());
-        COMPUTE<T>::scale(out.data(), x.data(), ss.item(), n);
-        COMPUTE<T>::mul(out.data(), out.data(), weight.data(), n);
+        ss = static_cast<T>(1) / std::sqrt(ss);
+        Ops<COMPUTE, T>::scale(out.data(), x.data(), ss, n);
+        Ops<COMPUTE, T>::mul(out.data(), out.data(), weight.data(), n);
     }
 };
 
@@ -46,7 +49,7 @@ template <template <class> class COMPUTE, typename T> struct ElemwiseAddExpr {
 
     [[nodiscard]] Shape outputShape() const { return a.shape(); }
 
-    void evalInto(TensorView<T> &out) const { COMPUTE<T>::add(out.data(), a.data(), b.data(), a.size()); }
+    void evalInto(TensorView<T> &out) const { Ops<COMPUTE, T>::add(out.data(), a.data(), b.data(), a.size()); }
 };
 
 template <template <class> class COMPUTE, typename T> struct ElemwiseSubExpr {
@@ -56,7 +59,7 @@ template <template <class> class COMPUTE, typename T> struct ElemwiseSubExpr {
 
     [[nodiscard]] Shape outputShape() const { return a.shape(); }
 
-    void evalInto(TensorView<T> &out) const { COMPUTE<T>::sub(out.data(), a.data(), b.data(), a.size()); }
+    void evalInto(TensorView<T> &out) const { Ops<COMPUTE, T>::sub(out.data(), a.data(), b.data(), a.size()); }
 };
 
 template <template <class> class COMPUTE, typename T> struct ElemwiseMulExpr {
@@ -66,7 +69,7 @@ template <template <class> class COMPUTE, typename T> struct ElemwiseMulExpr {
 
     [[nodiscard]] Shape outputShape() const { return a.shape(); }
 
-    void evalInto(TensorView<T> &out) const { COMPUTE<T>::mul(out.data(), a.data(), b.data(), a.size()); }
+    void evalInto(TensorView<T> &out) const { Ops<COMPUTE, T>::mul(out.data(), a.data(), b.data(), a.size()); }
 };
 
 template <template <class> class COMPUTE, typename T> struct ElemwiseDivExpr {
@@ -76,7 +79,7 @@ template <template <class> class COMPUTE, typename T> struct ElemwiseDivExpr {
 
     [[nodiscard]] Shape outputShape() const { return a.shape(); }
 
-    void evalInto(TensorView<T> &out) const { COMPUTE<T>::div(out.data(), a.data(), b.data(), a.size()); }
+    void evalInto(TensorView<T> &out) const { Ops<COMPUTE, T>::div(out.data(), a.data(), b.data(), a.size()); }
 };
 
 // ── SiluExpr ──────────────────────────────────────────────────────────────────
@@ -87,7 +90,7 @@ template <template <class> class COMPUTE, typename T> struct SiluExpr {
 
     [[nodiscard]] Shape outputShape() const { return x.shape(); }
 
-    void evalInto(TensorView<T> &out) const { COMPUTE<T>::silu(out.data(), x.data(), x.size()); }
+    void evalInto(TensorView<T> &out) const { Ops<COMPUTE, T>::silu(out.data(), x.data(), x.size()); }
 };
 
 // ── RopeExpr ──────────────────────────────────────────────────────────────────
@@ -103,8 +106,8 @@ template <template <class> class COMPUTE, typename T> struct RopeExpr {
 
     void evalInto(TensorView<T> &out) const {
         if (out.data() != q.data())
-            COMPUTE<T>::copy(q.data(), out.data(), q.size());
-        COMPUTE<T>::rope(out.data(), k.data(), pos, head_size, out.size(), k.size());
+            COMPUTE<T>::copy(q.data(), out.data(), q.size()); // memory op stays on COMPUTE
+        Ops<COMPUTE, T>::rope(out.data(), k.data(), pos, head_size, out.size(), k.size());
     }
 };
 
@@ -126,8 +129,8 @@ template <template <class> class COMPUTE, typename T> struct ScaledDotProductAtt
     [[nodiscard]] Shape outputShape() const { return Shape(n_heads * head_size); }
 
     void evalInto(TensorView<T> &out) const {
-        COMPUTE<T>::scaledDotProductAttention(out.data(), q.data(), key_cache.data(), val_cache.data(), att_buf.data(), pos, n_heads, kv_heads, head_size,
-                                              kv_dim, seq_len);
+        Ops<COMPUTE, T>::scaledDotProductAttention(out.data(), q.data(), key_cache.data(), val_cache.data(), att_buf.data(), pos, n_heads, kv_heads, head_size,
+                                                   kv_dim, seq_len);
     }
 };
 

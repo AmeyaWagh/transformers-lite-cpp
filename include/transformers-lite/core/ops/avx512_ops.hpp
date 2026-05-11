@@ -90,7 +90,6 @@ inline float dotAVX512(const float *a, const float *b, size_t n) {
 
 /** @brief In-place softmax over the first n elements of x using AVX-512. */
 inline void softmaxAVX512(float *x, size_t n) {
-    // Find max with SIMD + scalar tail
     float max_val = x[0];
     size_t i = 0;
     if (n >= 16) {
@@ -103,14 +102,12 @@ inline void softmaxAVX512(float *x, size_t n) {
         if (x[i] > max_val)
             max_val = x[i];
 
-    // exp(x - max) with scalar exp; accumulate sum
     float sum = 0.f;
     for (i = 0; i < n; ++i) {
         x[i] = std::exp(x[i] - max_val);
         sum += x[i];
     }
 
-    // Normalize with SIMD + scalar tail
     const float inv_sum = 1.0f / sum;
     __m512 vinv = _mm512_set1_ps(inv_sum);
     i = 0;
@@ -120,13 +117,7 @@ inline void softmaxAVX512(float *x, size_t n) {
         x[i] *= inv_sum;
 }
 
-/**
- * @brief Causal scaled dot-product attention with GQA support using AVX-512.
- *
- * Accelerates Q·K dot products with dotAVX512, softmax with _mm512_exp_ps
- * and FMA-based reduction, and V accumulation with _mm512_fmadd_ps.
- * Scalar tail loops handle remainder elements when sizes are not multiples of 16.
- */
+/** @brief Causal scaled dot-product attention with GQA support using AVX-512. */
 inline void scaledDotProductAttentionAVX512(float *out, const float *q, const float *key_cache, const float *val_cache, float *att_buf, int pos, size_t n_heads,
                                             size_t kv_heads, size_t head_size, size_t kv_dim, size_t seq_len) {
     const size_t kv_mul = n_heads / kv_heads;
@@ -138,15 +129,12 @@ inline void scaledDotProductAttentionAVX512(float *out, const float *q, const fl
         float *att_h = att_buf + h * seq_len;
         const size_t kv_off = (h / kv_mul) * head_size;
 
-        // Q·K scores
         for (size_t t = 0; t <= static_cast<size_t>(pos); t++)
             att_h[t] = dotAVX512(q_h, key_cache + t * kv_dim + kv_off, head_size) * scale;
 
-        // Softmax over att_h[0..pos]
         const size_t n = static_cast<size_t>(pos) + 1;
         size_t i = 0;
 
-        // Find max
         float max_val = att_h[0];
         if (n >= 16) {
             __m512 vmax = _mm512_loadu_ps(att_h);
@@ -158,14 +146,12 @@ inline void scaledDotProductAttentionAVX512(float *out, const float *q, const fl
             if (att_h[i] > max_val)
                 max_val = att_h[i];
 
-        // exp(x - max) with scalar exp; accumulate sum
         float sum = 0.f;
         for (i = 0; i < n; ++i) {
             att_h[i] = std::exp(att_h[i] - max_val);
             sum += att_h[i];
         }
 
-        // Normalize
         const float inv_sum = 1.0f / sum;
         __m512 vinv = _mm512_set1_ps(inv_sum);
         i = 0;
@@ -174,7 +160,6 @@ inline void scaledDotProductAttentionAVX512(float *out, const float *q, const fl
         for (; i < n; ++i)
             att_h[i] *= inv_sum;
 
-        // Zero output
         float *out_h = out + h * head_size;
         i = 0;
         for (; i + 16 <= head_size; i += 16)
@@ -182,7 +167,6 @@ inline void scaledDotProductAttentionAVX512(float *out, const float *q, const fl
         for (; i < head_size; ++i)
             out_h[i] = 0.f;
 
-        // Weighted V accumulation
         for (size_t t = 0; t <= static_cast<size_t>(pos); t++) {
             const float *v_t = val_cache + t * kv_dim + kv_off;
             __m512 va = _mm512_set1_ps(att_h[t]);
