@@ -1,6 +1,6 @@
 #pragma once
-#include <cmath>
 
+#include "../core/ops.hpp"
 #include "../core/state_dict.hpp"
 #include "../core/tensor.hpp"
 #include "layer.hpp"
@@ -67,32 +67,7 @@ template <template <class> class COMPUTE, class T> class Attention : public Laye
 
         rope(m_q, k, pos_, m_head_size);
 
-        size_t kv_mul = m_n_heads / m_kv_heads;
-        size_t h;
-#pragma omp parallel for private(h)
-        for (h = 0; h < m_n_heads; h++) {
-            TensorView<value_type> q_ = m_q.view(Shape(m_n_heads, m_head_size)).slice(h);
-            TensorView<value_type> att_ = m_att.slice(h);
-
-            for (size_t t = 0; t <= static_cast<size_t>(pos_); t++) {
-                TensorView<value_type> k_(m_key_cache.data() + t * m_kv_dim + (h / kv_mul) * m_head_size, Shape(m_head_size));
-                value_type score = dot_prod(q_, k_);
-                score /= sqrtf(m_head_size);
-                att_(t) = score;
-            }
-
-            softmax(att_, pos_ + 1);
-
-            TensorView<value_type> xb_ = m_out.view(Shape(m_n_heads, m_head_size)).slice(h);
-            setZero(xb_);
-            for (size_t t = 0; t <= static_cast<size_t>(pos_); t++) {
-                TensorView<value_type> v_(m_value_cache.data() + t * m_kv_dim + (h / kv_mul) * m_head_size, Shape(m_head_size));
-                value_type a = att_[t];
-                for (size_t i = 0; i < m_head_size; i++) {
-                    xb_(i) += a * v_(i);
-                }
-            }
-        }
+        m_out = scaledDotProductAttention(m_q, m_key_cache, m_value_cache, m_att, pos_, m_n_heads, m_kv_heads, m_head_size, m_kv_dim, m_seq_len);
         return m_out;
     }
 

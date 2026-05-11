@@ -79,6 +79,29 @@ template <template <class> class COMPUTE, typename T> struct ElemwiseDivExpr {
     void evalInto(TensorView<T> &out) const { COMPUTE<T>::div(out.data(), a.data(), b.data(), a.size()); }
 };
 
+// ── ScaledDotProductAttentionExpr ─────────────────────────────────────────────
+
+template <template <class> class COMPUTE, typename T> struct ScaledDotProductAttentionExpr {
+    using value_type = T;
+    TensorView<T> q;               // (n_heads * head_size,)
+    TensorView<T> key_cache;       // (seq_len * kv_dim,) flat
+    TensorView<T> val_cache;       // (seq_len * kv_dim,) flat
+    mutable TensorView<T> att_buf; // (n_heads * seq_len,) scratch written during eval
+    int pos;
+    size_t n_heads;
+    size_t kv_heads;
+    size_t head_size;
+    size_t kv_dim;
+    size_t seq_len;
+
+    [[nodiscard]] Shape outputShape() const { return Shape(n_heads * head_size); }
+
+    void evalInto(TensorView<T> &out) const {
+        COMPUTE<T>::scaledDotProductAttention(out.data(), q.data(), key_cache.data(), val_cache.data(), att_buf.data(), pos, n_heads, kv_heads, head_size,
+                                              kv_dim, seq_len);
+    }
+};
+
 // ── Factory functions ──────────────────────────────────────────────────────────
 
 template <template <class> class COMPUTE, typename T>
@@ -89,6 +112,13 @@ template <template <class> class COMPUTE, typename T>
 template <template <class> class COMPUTE, typename T>
 [[nodiscard]] auto rmsnorm(const Tensor<COMPUTE, T> &x, const Tensor<COMPUTE, T> &weight) -> RMSNormExpr<COMPUTE, T> {
     return {TensorView<T>{x}, TensorView<T>{weight}};
+}
+
+template <template <class> class COMPUTE, typename T>
+[[nodiscard]] auto scaledDotProductAttention(const Tensor<COMPUTE, T> &q, const Tensor<COMPUTE, T> &key_cache, const Tensor<COMPUTE, T> &val_cache,
+                                             Tensor<COMPUTE, T> &att_buf, int pos, size_t n_heads, size_t kv_heads, size_t head_size, size_t kv_dim,
+                                             size_t seq_len) -> ScaledDotProductAttentionExpr<COMPUTE, T> {
+    return {TensorView<T>{q}, TensorView<T>{key_cache}, TensorView<T>{val_cache}, TensorView<T>{att_buf}, pos, n_heads, kv_heads, head_size, kv_dim, seq_len};
 }
 
 // ── Operator overloads ────────────────────────────────────────────────────────

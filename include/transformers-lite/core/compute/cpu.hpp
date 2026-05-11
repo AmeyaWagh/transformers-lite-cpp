@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <type_traits>
@@ -116,6 +117,70 @@ template <class T> struct CPU : public XPU {
                 for (int j = 0; j < n; j++)
                     val += w[i * n + j] * x[j];
                 out[i] = val;
+            }
+        }
+    }
+
+    /** @brief In-place softmax over the first n elements of x. */
+    static void softmax(T *x, size_t n) {
+        T max_val = x[0];
+        for (size_t i = 1; i < n; ++i)
+            if (x[i] > max_val)
+                max_val = x[i];
+        T sum = T(0);
+        for (size_t i = 0; i < n; ++i) {
+            x[i] = std::exp(x[i] - max_val);
+            sum += x[i];
+        }
+        for (size_t i = 0; i < n; ++i)
+            x[i] /= sum;
+    }
+
+    /**
+     * @brief Causal scaled dot-product attention with GQA support.
+     *
+     * For each query head h:
+     *   att[t] = dot(q_h, k_t) / sqrt(head_size)   for t in [0, pos]
+     *   att     = softmax(att)
+     *   out_h   = sum_t( att[t] * v_t )
+     *
+     * @param out        output buffer (n_heads * head_size,)
+     * @param q          query buffer  (n_heads * head_size,)
+     * @param key_cache  flat KV cache (seq_len * kv_dim,)
+     * @param val_cache  flat V  cache (seq_len * kv_dim,)
+     * @param att_buf    scratch attention scores (n_heads * seq_len,) — written in place
+     * @param pos        current sequence position (attend to [0, pos])
+     * @param n_heads    number of query heads
+     * @param kv_heads   number of key/value heads
+     * @param head_size  elements per head
+     * @param kv_dim     kv_heads * head_size
+     * @param seq_len    maximum sequence length (stride of the KV cache)
+     */
+    static void scaledDotProductAttention(T *out, const T *q, const T *key_cache, const T *val_cache, T *att_buf, int pos, size_t n_heads, size_t kv_heads,
+                                          size_t head_size, size_t kv_dim, size_t seq_len) {
+        const size_t kv_mul = n_heads / kv_heads;
+        const T scale = static_cast<T>(1) / std::sqrt(static_cast<T>(head_size));
+        size_t h;
+#pragma omp parallel for private(h)
+        for (h = 0; h < n_heads; h++) {
+            const T *q_h = q + h * head_size;
+            T *att_h = att_buf + h * seq_len;
+
+            for (size_t t = 0; t <= static_cast<size_t>(pos); t++) {
+                const T *k_t = key_cache + t * kv_dim + (h / kv_mul) * head_size;
+                att_h[t] = dot(q_h, k_t, head_size) * scale;
+            }
+
+            softmax(att_h, static_cast<size_t>(pos) + 1);
+
+            T *out_h = out + h * head_size;
+            for (size_t i = 0; i < head_size; i++)
+                out_h[i] = T(0);
+            for (size_t t = 0; t <= static_cast<size_t>(pos); t++) {
+                const T *v_t = val_cache + t * kv_dim + (h / kv_mul) * head_size;
+                T a = att_h[t];
+                for (size_t i = 0; i < head_size; i++)
+                    out_h[i] += a * v_t[i];
             }
         }
     }
