@@ -123,17 +123,21 @@ template <class T> struct CPU : public XPU {
 
     /** @brief In-place softmax over the first n elements of x. */
     static void softmax(T *x, size_t n) {
-        T max_val = x[0];
-        for (size_t i = 1; i < n; ++i)
-            if (x[i] > max_val)
-                max_val = x[i];
-        T sum = T(0);
-        for (size_t i = 0; i < n; ++i) {
-            x[i] = std::exp(x[i] - max_val);
-            sum += x[i];
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            softmaxAVX512(x, n);
+        } else {
+            T max_val = x[0];
+            for (size_t i = 1; i < n; ++i)
+                if (x[i] > max_val)
+                    max_val = x[i];
+            T sum = T(0);
+            for (size_t i = 0; i < n; ++i) {
+                x[i] = std::exp(x[i] - max_val);
+                sum += x[i];
+            }
+            for (size_t i = 0; i < n; ++i)
+                x[i] /= sum;
         }
-        for (size_t i = 0; i < n; ++i)
-            x[i] /= sum;
     }
 
     /**
@@ -158,6 +162,10 @@ template <class T> struct CPU : public XPU {
      */
     static void scaledDotProductAttention(T *out, const T *q, const T *key_cache, const T *val_cache, T *att_buf, int pos, size_t n_heads, size_t kv_heads,
                                           size_t head_size, size_t kv_dim, size_t seq_len) {
+        if constexpr (kCPUAccelerator == CPUAccelerator::AVX512 && std::is_same_v<T, float>) {
+            scaledDotProductAttentionAVX512(out, q, key_cache, val_cache, att_buf, pos, n_heads, kv_heads, head_size, kv_dim, seq_len);
+            return;
+        }
         const size_t kv_mul = n_heads / kv_heads;
         const T scale = static_cast<T>(1) / std::sqrt(static_cast<T>(head_size));
         size_t h;
